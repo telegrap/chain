@@ -22,6 +22,7 @@ import (
 	"chain/core/txdb"
 	"chain/core/txfeed"
 	"chain/database/pg"
+	"chain/database/raft"
 	"chain/encoding/json"
 	"chain/errors"
 	"chain/generated/dashboard"
@@ -29,7 +30,6 @@ import (
 	"chain/net/http/gzip"
 	"chain/net/http/httpjson"
 	"chain/net/http/limit"
-	"chain/net/http/reqid"
 	"chain/net/http/static"
 	"chain/protocol"
 	"chain/protocol/bc"
@@ -60,6 +60,7 @@ type API struct {
 	AccessTokens  *accesstoken.CredentialStore
 	Config        *config.Config
 	Submitter     txbuilder.Submitter
+	RaftDB        *raft.Service
 	DB            pg.DB
 	Addr          string
 	AltAuth       func(*http.Request) bool
@@ -97,6 +98,7 @@ func (a *API) needConfig() func(f interface{}) http.Handler {
 	return jsonHandler
 }
 
+// Adds the Core API routes to a preexisting http handler.
 func Handler(a *API, register func(*http.ServeMux, *API)) http.Handler {
 	// Setup the muxer.
 	needConfig := a.needConfig()
@@ -171,7 +173,7 @@ func Handler(a *API, register func(*http.ServeMux, *API)) http.Handler {
 		tokenMap: make(map[string]tokenResult),
 		alt:      a.AltAuth,
 	}).handler(latencyHandler)
-	handler = maxBytes(handler)
+	handler = maxBytes(handler) // TODO(tessr): consider moving this to non-core specific mux
 	handler = webAssetsHandler(handler)
 	handler = healthHandler(handler)
 	for _, l := range a.RequestLimits {
@@ -179,7 +181,6 @@ func Handler(a *API, register func(*http.ServeMux, *API)) http.Handler {
 	}
 	handler = gzip.Handler{Handler: handler}
 	handler = coreCounter(handler)
-	handler = reqid.Handler(handler)
 	handler = timeoutContextHandler(handler)
 
 	return handler

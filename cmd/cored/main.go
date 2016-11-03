@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"encoding/hex"
 	"expvar"
 	"flag"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -37,6 +37,7 @@ import (
 	"chain/core/txfeed"
 	"chain/crypto/ed25519"
 	"chain/database/pg"
+	"chain/database/raft"
 	"chain/database/sql"
 	"chain/encoding/json"
 	"chain/env"
@@ -45,6 +46,7 @@ import (
 	"chain/log/rotation"
 	"chain/log/splunk"
 	"chain/net/http/limit"
+	"chain/net/http/reqid"
 	"chain/protocol"
 	"chain/protocol/bc"
 	_ "chain/protocol/tx" // for TxHash init
@@ -71,6 +73,8 @@ var (
 	rpsToken      = env.Int("RATELIMIT_TOKEN", 0)       // reqs/sec
 	rpsRemoteAddr = env.Int("RATELIMIT_REMOTE_ADDR", 0) // reqs/sec
 	indexTxs      = env.Bool("INDEX_TRANSACTIONS", true)
+	dir           = env.String("DIR", defaultDir())
+	bootURL       = env.String("BOOTURL", "")
 
 	// build vars; initialized by the linker
 	buildTag    = "?"
@@ -143,6 +147,55 @@ func runServer() {
 	ctx := context.Background()
 	env.Parse()
 
+	raftDir := filepath.Join(*dir, "raft") // TODO(kr): better name for this
+	raftDB, err := raft.Start(*listenAddr, raftDir, *bootURL)
+	if err != nil {
+		chainlog.Fatal(ctx, chainlog.KeyError, err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/raft/", raftDB)
+
+	var handler http.Handler = mux
+	handler = reqid.Handler(handler)
+
+	secureheader.DefaultConfig.PermitClearLoopback = true
+	secureheader.DefaultConfig.HTTPSRedirect = httpsRedirect
+	secureheader.DefaultConfig.Next = handler
+
+	server := &http.Server{
+		Addr:         *listenAddr,
+		Handler:      secureheader.DefaultConfig,
+		ReadTimeout:  httpReadTimeout,
+		WriteTimeout: httpWriteTimeout,
+		// Disable HTTP/2 for now until the Go implementation is more stable.
+		// https://github.com/golang/go/issues/16450
+		// https://github.com/golang/go/issues/17071
+		TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){},
+	}
+
+	go func() {
+		if *tlsCrt != "" {
+			cert, err := tls.X509KeyPair([]byte(*tlsCrt), []byte(*tlsKey))
+			if err != nil {
+				chainlog.Fatal(ctx, chainlog.KeyError, errors.Wrap(err, "parsing tls X509 key pair"))
+			}
+
+			server.TLSConfig = &tls.Config{
+				Certificates: []tls.Certificate{cert},
+			}
+			err = server.ListenAndServeTLS("", "") // uses TLS certs from above
+			if err != nil {
+				chainlog.Fatal(ctx, chainlog.KeyError, errors.Wrap(err, "ListenAndServeTLS"))
+			}
+		} else {
+			err = server.ListenAndServe()
+			if err != nil {
+				chainlog.Fatal(ctx, chainlog.KeyError, errors.Wrap(err, "ListenAndServe"))
+			}
+		}
+	}()
+
 	sql.EnableQueryLogging(*logQueries)
 	db, err := sql.Open("hapg", *dbURL)
 	if err != nil {
@@ -155,9 +208,9 @@ func runServer() {
 	if err != nil {
 		chainlog.Fatal(ctx, chainlog.KeyError, err)
 	}
-	resetInDevIfRequested(db)
+	resetInDevIfRequested(db, raftDB)
 
-	conf, err := config.Load(ctx, db)
+	conf, err := config.Load(ctx, db, raftDB)
 	if err != nil {
 		chainlog.Fatal(ctx, chainlog.KeyError, err)
 	}
@@ -169,7 +222,7 @@ func runServer() {
 	}
 	processID := fmt.Sprintf("chain-%s-%d", hostname, os.Getpid())
 	if conf != nil {
-		processID += "-" + conf.ID
+		processID += "-" + conf.Id
 	}
 	expvar.NewString("processID").Set(processID)
 
@@ -180,61 +233,27 @@ func runServer() {
 
 	var h http.Handler
 	if conf != nil {
-		h = launchConfiguredCore(ctx, db, conf, processID)
+		h = launchConfiguredCore(ctx, raftDB, db, conf, processID)
 	} else {
-		h = launchUnconfiguredCore(ctx, db)
+		h = launchUnconfiguredCore(ctx, raftDB, db)
 	}
+	mux.Handle("/", h)
+	chainlog.Messagef(ctx, "Chain Core online and listening at %s", *listenAddr)
 
-	secureheader.DefaultConfig.PermitClearLoopback = true
-	secureheader.DefaultConfig.HTTPSRedirect = httpsRedirect
-	secureheader.DefaultConfig.Next = h
-
-	// Give the remainder of this function a second to reach the
-	// ListenAndServe call, then log a welcome message.
-	go func() {
-		time.Sleep(time.Second)
-		chainlog.Messagef(ctx, "Chain Core online and listening at %s", *listenAddr)
-	}()
-
-	server := &http.Server{
-		Addr:         *listenAddr,
-		Handler:      secureheader.DefaultConfig,
-		ReadTimeout:  httpReadTimeout,
-		WriteTimeout: httpWriteTimeout,
-		// Disable HTTP/2 for now until the Go implementation is more stable.
-		// https://github.com/golang/go/issues/16450
-		// https://github.com/golang/go/issues/17071
-		TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){},
-	}
-	if *tlsCrt != "" {
-		cert, err := tls.X509KeyPair([]byte(*tlsCrt), []byte(*tlsKey))
-		if err != nil {
-			chainlog.Fatal(ctx, chainlog.KeyError, errors.Wrap(err, "parsing tls X509 key pair"))
-		}
-
-		server.TLSConfig = &tls.Config{
-			Certificates: []tls.Certificate{cert},
-		}
-		err = server.ListenAndServeTLS("", "") // uses TLS certs from above
-		if err != nil {
-			chainlog.Fatal(ctx, chainlog.KeyError, errors.Wrap(err, "ListenAndServeTLS"))
-		}
-	} else {
-		err = server.ListenAndServe()
-		if err != nil {
-			chainlog.Fatal(ctx, chainlog.KeyError, errors.Wrap(err, "ListenAndServe"))
-		}
-	}
+	// block forever without using any resources so this process won't quit while
+	// the goroutine containing ListenAndServe is still working
+	select {}
 }
 
-func launchConfiguredCore(ctx context.Context, db *sql.DB, conf *config.Config, processID string) http.Handler {
+func launchConfiguredCore(ctx context.Context, raftDB *raft.Service, db *sql.DB, conf *config.Config, processID string) http.Handler {
+
 	// Initialize the protocol.Chain.
 	heights, err := txdb.ListenBlocks(ctx, *dbURL)
 	if err != nil {
 		chainlog.Fatal(ctx, chainlog.KeyError, err)
 	}
 	store := txdb.NewStore(db)
-	c, err := protocol.NewChain(ctx, conf.BlockchainID, store, heights)
+	c, err := protocol.NewChain(ctx, conf.BlockchainId.Hash(), store, heights)
 	if err != nil {
 		chainlog.Fatal(ctx, chainlog.KeyError, err)
 	}
@@ -242,22 +261,17 @@ func launchConfiguredCore(ctx context.Context, db *sql.DB, conf *config.Config, 
 	var generatorSigners []generator.BlockSigner
 	var signBlockHandler func(context.Context, *bc.Block) ([]byte, error)
 	if conf.IsSigner {
-		blockPub, err := hex.DecodeString(conf.BlockPub)
-		if err != nil {
-			chainlog.Fatal(ctx, chainlog.KeyError, err)
-		}
-
 		var hsm blocksigner.Signer
-		if conf.BlockHSMURL != "" {
+		if conf.BlockHsmUrl != "" {
 			// TODO(ameets): potential option to take only a password when configuring
 			//  and convert to an access token string here for BlockHSMAccessToken
 			hsm = &remoteHSM{Client: &rpc.Client{
-				BaseURL:      conf.BlockHSMURL,
-				AccessToken:  conf.BlockHSMAccessToken,
+				BaseURL:      conf.BlockHsmUrl,
+				AccessToken:  conf.BlockHsmAccessToken,
 				Username:     processID,
-				CoreID:       conf.ID,
+				CoreID:       conf.Id,
 				BuildTag:     buildTag,
-				BlockchainID: conf.BlockchainID.String(),
+				BlockchainID: conf.BlockchainId.Hash().String(),
 			}}
 		} else {
 			hsm, err = devHSM(db)
@@ -265,7 +279,7 @@ func launchConfiguredCore(ctx context.Context, db *sql.DB, conf *config.Config, 
 				chainlog.Fatal(ctx, chainlog.KeyError, err)
 			}
 		}
-		s := blocksigner.New(blockPub, hsm, db, c)
+		s := blocksigner.New(conf.BlockPub, hsm, db, c)
 
 		generatorSigners = append(generatorSigners, s) // "local" signer
 		signBlockHandler = func(ctx context.Context, b *bc.Block) ([]byte, error) {
@@ -277,10 +291,10 @@ func launchConfiguredCore(ctx context.Context, db *sql.DB, conf *config.Config, 
 		}
 	}
 	if conf.IsGenerator {
-		for _, signer := range remoteSignerInfo(ctx, processID, buildTag, conf.BlockchainID.String(), conf) {
+		for _, signer := range remoteSignerInfo(ctx, processID, buildTag, conf.BlockchainId.Hash().String(), conf) {
 			generatorSigners = append(generatorSigners, signer)
 		}
-		c.MaxIssuanceWindow = conf.MaxIssuanceWindow.Duration
+		c.MaxIssuanceWindow = bc.MillisDuration(conf.MaxIssuanceWindow)
 	}
 
 	var submitter txbuilder.Submitter
@@ -288,12 +302,12 @@ func launchConfiguredCore(ctx context.Context, db *sql.DB, conf *config.Config, 
 	var remoteGenerator *rpc.Client
 	if !conf.IsGenerator {
 		remoteGenerator = &rpc.Client{
-			BaseURL:      conf.GeneratorURL,
+			BaseURL:      conf.GeneratorUrl,
 			AccessToken:  conf.GeneratorAccessToken,
 			Username:     processID,
-			CoreID:       conf.ID,
+			CoreID:       conf.Id,
 			BuildTag:     buildTag,
-			BlockchainID: conf.BlockchainID.String(),
+			BlockchainID: conf.BlockchainId.String(),
 		}
 		submitter = &txbuilder.RemoteGenerator{Peer: remoteGenerator}
 	} else {
@@ -342,6 +356,7 @@ func launchConfiguredCore(ctx context.Context, db *sql.DB, conf *config.Config, 
 		Indexer:      indexer,
 		AccessTokens: &accesstoken.CredentialStore{DB: db},
 		Config:       conf,
+		RaftDB:       raftDB,
 		DB:           db,
 		Addr:         *listenAddr,
 		Signer:       signBlockHandler,
@@ -421,14 +436,15 @@ func launchConfiguredCore(ctx context.Context, db *sql.DB, conf *config.Config, 
 	handler := core.Handler(h, hsmRegister(db))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Header().Set(rpc.HeaderBlockchainID, conf.BlockchainID.String())
+		w.Header().Set(rpc.HeaderBlockchainID, conf.BlockchainId.String())
 		handler.ServeHTTP(w, req)
 	})
 }
 
-func launchUnconfiguredCore(ctx context.Context, db pg.DB) http.Handler {
+func launchUnconfiguredCore(ctx context.Context, raftDB *raft.Service, db pg.DB) http.Handler {
 	chainlog.Messagef(ctx, "Launching as unconfigured Core.")
 	return core.Handler(&core.API{
+		RaftDB:       raftDB,
 		DB:           db,
 		AltAuth:      authLoopbackInDev,
 		AccessTokens: &accesstoken.CredentialStore{DB: db},
@@ -458,7 +474,7 @@ func (h *remoteHSM) Sign(ctx context.Context, pk ed25519.PublicKey, bh *bc.Block
 
 func remoteSignerInfo(ctx context.Context, processID, buildTag, blockchainID string, conf *config.Config) (a []*remoteSigner) {
 	for _, signer := range conf.Signers {
-		u, err := url.Parse(signer.URL)
+		u, err := url.Parse(signer.Url)
 		if err != nil {
 			chainlog.Fatal(ctx, chainlog.KeyError, err)
 		}
@@ -469,7 +485,7 @@ func remoteSignerInfo(ctx context.Context, processID, buildTag, blockchainID str
 			BaseURL:      u.String(),
 			AccessToken:  signer.AccessToken,
 			Username:     processID,
-			CoreID:       conf.ID,
+			CoreID:       conf.Id,
 			BuildTag:     buildTag,
 			BlockchainID: blockchainID,
 		}
@@ -522,4 +538,9 @@ func (w *errlog) Write(p []byte) (int, error) {
 		w.t = time.Now()
 	}
 	return len(p), nil // report success for the MultiWriter
+}
+
+func defaultDir() string {
+	// TODO(kr): something in ~/Library on darwin?
+	return filepath.Join(os.Getenv("HOME"), ".cored")
 }
