@@ -2,7 +2,7 @@ package tx
 
 import "chain/protocol/bc"
 
-type retirement struct {
+type Retirement struct {
 	body struct {
 		Source  valueSource
 		Data    bc.Hash
@@ -11,13 +11,13 @@ type retirement struct {
 	ordinal int
 }
 
-func (retirement) Type() string         { return "retirement1" }
-func (r *retirement) Body() interface{} { return r.body }
+func (Retirement) Type() string         { return "retirement1" }
+func (r *Retirement) Body() interface{} { return r.body }
 
-func (r retirement) Ordinal() int { return r.ordinal }
+func (r Retirement) Ordinal() int { return r.ordinal }
 
-func newRetirement(source valueSource, data bc.Hash, ordinal int) *retirement {
-	r := new(retirement)
+func newRetirement(source valueSource, data bc.Hash, ordinal int) *Retirement {
+	r := new(Retirement)
 	r.body.Source = source
 	r.body.Data = data
 	r.ordinal = ordinal

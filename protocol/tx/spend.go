@@ -2,22 +2,22 @@ package tx
 
 import "chain/protocol/bc"
 
-type spend struct {
+type Spend struct {
 	body struct {
-		SpentOutput entryRef // must be an Output entry
+		SpentOutput bc.OutputID
 		Data        bc.Hash
 		ExtHash     extHash
 	}
 	ordinal int
 }
 
-func (spend) Type() string         { return "spend1" }
-func (s *spend) Body() interface{} { return s.body }
+func (Spend) Type() string         { return "spend1" }
+func (s *Spend) Body() interface{} { return s.body }
 
-func (s spend) Ordinal() int { return s.ordinal }
+func (s Spend) Ordinal() int { return s.ordinal }
 
-func newSpend(spentOutput entryRef, data bc.Hash, ordinal int) *spend {
-	s := new(spend)
+func newSpend(spentOutput bc.OutputID, data bc.Hash, ordinal int) *Spend {
+	s := new(Spend)
 	s.body.SpentOutput = spentOutput
 	s.body.Data = data
 	s.ordinal = ordinal

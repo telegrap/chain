@@ -27,40 +27,40 @@ func TxHashes(oldTx *bc.TxData) (hashes *bc.TxHashes, err error) {
 	hashes.ID = bc.Hash(txid)
 
 	// ResultHashes
-	hashes.ResultHashes = make([]bc.Hash, len(header.body.Results))
-	for i, resultHash := range header.body.Results {
-		hashes.ResultHashes[i] = bc.Hash(resultHash)
+	hashes.ResultHashes = make([]bc.Hash, len(header.body.ResultRefs))
+	for i, resultHash := range header.body.ResultRefs {
+		hashes.ResultHashes[i] = resultHash
 	}
 
 	hashes.VMContexts = make([]*bc.VMContext, len(oldTx.Inputs))
 
 	for entryID, ent := range entries {
 		switch ent := ent.(type) {
-		case *nonce:
+		case *Nonce:
 			// TODO: check time range is within network-defined limits
-			trID := ent.body.TimeRange
+			trID := ent.body.TimeRangeRef
 			trEntry, ok := entries[trID]
 			if !ok {
 				return nil, fmt.Errorf("nonce entry refers to nonexistent timerange entry")
 			}
-			tr, ok := trEntry.(*timeRange)
+			tr, ok := trEntry.(*TimeRange)
 			if !ok {
 				return nil, fmt.Errorf("nonce entry refers to %s entry, should be timerange", trEntry.Type())
 			}
 			iss := struct {
 				ID           bc.Hash
 				ExpirationMS uint64
-			}{bc.Hash(entryID), tr.body.MaxTimeMS}
+			}{entryID, tr.body.MaxTimeMS}
 			hashes.Issuances = append(hashes.Issuances, iss)
 
-		case *issuance:
-			vmc := newVMContext(bc.Hash(entryID), hashes.ID, header.body.Data, ent.body.Data)
-			vmc.NonceID = (*bc.Hash)(&ent.body.Anchor)
+		case *Issuance:
+			vmc := newVMContext(entryID, hashes.ID, header.body.Data, ent.body.Data)
+			vmc.NonceID = &ent.body.AnchorRef
 			hashes.VMContexts[ent.Ordinal()] = vmc
 
-		case *spend:
-			vmc := newVMContext(bc.Hash(entryID), hashes.ID, header.body.Data, ent.body.Data)
-			vmc.OutputID = (*bc.Hash)(&ent.body.SpentOutput)
+		case *Spend:
+			vmc := newVMContext(entryID, hashes.ID, header.body.Data, ent.body.Data)
+			vmc.OutputID = &ent.body.SpentOutput
 			hashes.VMContexts[ent.Ordinal()] = vmc
 		}
 	}
