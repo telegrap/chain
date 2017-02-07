@@ -128,7 +128,7 @@ func Handler(a *API, register func(*http.ServeMux, *API)) http.Handler {
 	m.Handle("/list-unspent-outputs", needConfig(a.listUnspentOutputs))
 	m.Handle("/reset", devOnly(needConfig(a.reset)))
 
-	m.Handle(networkRPCPrefix+"submit", needConfig(func(ctx context.Context, tx *bc.Tx) error {
+	m.Handle(networkRPCPrefix+"submit", needConfig(func(ctx context.Context, tx *bc.Transaction) error {
 		return a.Submitter.Submit(ctx, tx)
 	}))
 	m.Handle(networkRPCPrefix+"get-blocks", needConfig(a.getBlocksRPC)) // DEPRECATED: use get-block instead

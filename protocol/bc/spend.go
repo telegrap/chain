@@ -1,40 +1,81 @@
 package bc
 
-// SpendInput satisfies the TypedInput interface and represents a spend transaction.
-type SpendInput struct {
-	// Commitment
-	SpentOutputID Hash
-	OutputCommitment
-
-	// The unconsumed suffix of the output commitment
-	OutputCommitmentSuffix []byte
-
-	// Witness
-	Arguments [][]byte
+// Prevout is not an entry type. It encapsulate those elements of a
+// spent output required for validation: assetid, amount, and control
+// program. It can be used in a Spend when the full previous Output is
+// not available. In that case, the spend's body.SpentOutput.Entry
+// must be nil, its body.SpentOutput.ID must contain the correct
+// outputid, and its prevout must be non-nil.
+type Prevout struct {
+	AssetAmount
+	Program
 }
 
-func (si *SpendInput) IsIssuance() bool { return false }
+type Spend struct {
+	body struct {
+		SpentOutput *EntryRef
+		Data        Hash
+		ExtHash     Hash
+	}
+	witness struct {
+		Destination ValueDestination
+		Arguments   [][]byte
+		ExtHash     Hash
+	}
+	prevout *Prevout
+}
 
-func NewSpendInput(prevoutID Hash, arguments [][]byte, assetID AssetID, amount uint64, controlProgram, referenceData []byte) *TxInput {
-	const (
-		vmver    = 1
-		assetver = 1
-	)
-	oc := OutputCommitment{
-		AssetAmount: AssetAmount{
-			AssetID: assetID,
-			Amount:  amount,
-		},
-		VMVersion:      vmver,
-		ControlProgram: controlProgram,
+const typeSpend = "spend1"
+
+func (Spend) Type() string            { return typeSpend }
+func (s *Spend) Body() interface{}    { return &s.body }
+func (s *Spend) Witness() interface{} { return &s.witness }
+
+func (s *Spend) Data() Hash {
+	return s.body.Data
+}
+
+func (s *Spend) Destination() ValueDestination {
+	return s.witness.Destination
+}
+
+func (s *Spend) Arguments() [][]byte {
+	return s.witness.Arguments
+}
+
+func (s *Spend) SetArguments(args [][]byte) {
+	s.witness.Arguments = args
+}
+
+func (s *Spend) OutputID() Hash {
+	return s.body.SpentOutput.Hash()
+}
+
+func (s *Spend) AssetAmount() AssetAmount {
+	if s.prevout != nil {
+		return s.prevout.AssetAmount
 	}
-	return &TxInput{
-		AssetVersion:  assetver,
-		ReferenceData: referenceData,
-		TypedInput: &SpendInput{
-			SpentOutputID:    prevoutID,
-			OutputCommitment: oc,
-			Arguments:        arguments,
-		},
+	return s.body.SpentOutput.Entry.(*Output).AssetAmount()
+}
+
+func (s *Spend) ControlProgram() Program {
+	if s.prevout != nil {
+		return s.prevout.Program
 	}
+	return s.body.SpentOutput.Entry.(*Output).ControlProgram()
+}
+
+func NewFullSpend(spentOutput *EntryRef, data Hash) *Spend {
+	s := new(Spend)
+	s.body.SpentOutput = spentOutput
+	s.body.Data = data
+	return s
+}
+
+func NewPrevoutSpend(outputID Hash, prevout *Prevout, data Hash) *Spend {
+	s := new(Spend)
+	s.body.SpentOutput = &EntryRef{ID: &outputID}
+	s.body.Data = data
+	s.prevout = prevout
+	return s
 }

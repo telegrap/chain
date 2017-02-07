@@ -1,7 +1,6 @@
 package validation
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"runtime"
@@ -32,13 +31,13 @@ var (
 // See $CHAIN/protocol/doc/spec/validation.md#accept-block.
 // It evaluates the prevBlock's consensus program,
 // then calls ValidateBlock.
-func ValidateBlockForAccept(ctx context.Context, snapshot *state.Snapshot, initialBlockHash bc.Hash, prevBlock, block *bc.Block, validateTx func(*bc.Tx) error) error {
+func ValidateBlockForAccept(ctx context.Context, snapshot *state.Snapshot, initialBlockHash bc.Hash, prevBlock, block *bc.Block, validateTx func(*bc.Transaction) error) error {
 	if prevBlock != nil {
-		err := vm.VerifyBlockHeader(&prevBlock.BlockHeader, block)
+		err := vm.VerifyBlockHeader(prevBlock.Header.Entry.(*bc.BlockHeader), block)
 		if err != nil {
-			pkScriptStr, _ := vm.Disassemble(prevBlock.ConsensusProgram)
-			witnessStrs := make([]string, 0, len(block.Witness))
-			for _, w := range block.Witness {
+			pkScriptStr, _ := vm.Disassemble(prevBlock.NextConsensusProgram())
+			witnessStrs := make([]string, 0, len(block.Arguments()))
+			for _, w := range block.Arguments() {
 				witnessStrs = append(witnessStrs, hex.EncodeToString(w))
 			}
 			witnessStr := strings.Join(witnessStrs, "; ")
@@ -54,27 +53,27 @@ func ValidateBlockForAccept(ctx context.Context, snapshot *state.Snapshot, initi
 // See $CHAIN/protocol/doc/spec/validation.md#validate-block.
 // Note that it does not execute prevBlock's consensus program.
 // (See ValidateBlockForAccept for that.)
-func ValidateBlock(ctx context.Context, snapshot *state.Snapshot, initialBlockHash bc.Hash, prevBlock, block *bc.Block, validateTx func(*bc.Tx) error) error {
+func ValidateBlock(ctx context.Context, snapshot *state.Snapshot, initialBlockHash bc.Hash, prevBlock, block *bc.Block, validateTx func(*bc.Transaction) error) error {
 
 	var g errgroup.Group
 	// Do all of the unparallelizable work, plus validating the block
 	// header in one goroutine.
 	g.Go(func() error {
-		var prev *bc.BlockHeader
+		var prevBlockHeaderRef *bc.EntryRef
 		if prevBlock != nil {
-			prev = &prevBlock.BlockHeader
+			prevBlockHeaderRef = prevBlock.Header
 		}
-		err := validateBlockHeader(prev, block)
+		err := validateBlockHeader(prevBlockHeaderRef, block)
 		if err != nil {
 			return err
 		}
-		snapshot.PruneIssuances(block.TimestampMS)
+		snapshot.PruneIssuances(block.TimestampMS())
 
 		// TODO: Check that other block headers are valid.
 		// TODO(erykwalder): consider writing to a copy of the state tree
 		// of the one provided and make the caller call ApplyBlock as well
 		for _, tx := range block.Transactions {
-			err = ConfirmTx(snapshot, initialBlockHash, block.Version, block.TimestampMS, tx)
+			err = ConfirmTx(snapshot, initialBlockHash, block.Version(), block.TimestampMS(), tx)
 			if err != nil {
 				return err
 			}
@@ -83,7 +82,7 @@ func ValidateBlock(ctx context.Context, snapshot *state.Snapshot, initialBlockHa
 				return err
 			}
 		}
-		if block.AssetsMerkleRoot != snapshot.Tree.RootHash() {
+		if block.AssetsRoot() != snapshot.Tree.RootHash() {
 			return ErrBadStateRoot
 		}
 		return nil
@@ -91,7 +90,7 @@ func ValidateBlock(ctx context.Context, snapshot *state.Snapshot, initialBlockHa
 
 	// Distribute checking well-formedness of the transactions across
 	// GOMAXPROCS goroutines.
-	ch := make(chan *bc.Tx, len(block.Transactions))
+	ch := make(chan *bc.Transaction, len(block.Transactions))
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		g.Go(func() error {
 			for tx := range ch {
@@ -111,7 +110,7 @@ func ValidateBlock(ctx context.Context, snapshot *state.Snapshot, initialBlockHa
 
 // ApplyBlock applies the transactions in the block to the state tree.
 func ApplyBlock(snapshot *state.Snapshot, block *bc.Block) error {
-	snapshot.PruneIssuances(block.TimestampMS)
+	snapshot.PruneIssuances(block.TimestampMS())
 	for _, tx := range block.Transactions {
 		err := ApplyTx(snapshot, tx)
 		if err != nil {
@@ -121,19 +120,20 @@ func ApplyBlock(snapshot *state.Snapshot, block *bc.Block) error {
 	return nil
 }
 
-func validateBlockHeader(prev *bc.BlockHeader, block *bc.Block) error {
-	if prev == nil && block.Height != 1 {
-		return ErrBadHeight
-	}
-	if prev != nil {
-		prevHash := prev.Hash()
-		if !bytes.Equal(block.PreviousBlockHash[:], prevHash[:]) {
-			return ErrBadPrevHash
-		}
-		if block.Height != prev.Height+1 {
+func validateBlockHeader(prevRef *bc.EntryRef, block *bc.Block) error {
+	if prevRef.Entry == nil {
+		if block.Height() != 1 {
 			return ErrBadHeight
 		}
-		if block.TimestampMS < prev.TimestampMS {
+	} else {
+		if block.PreviousBlockID() != prevRef.Hash() {
+			return ErrBadPrevHash
+		}
+		prev := prevRef.Entry.(*bc.BlockHeader)
+		if block.Height() != prev.Height()+1 {
+			return ErrBadHeight
+		}
+		if block.TimestampMS() < prev.TimestampMS() {
 			return ErrBadTimestamp
 		}
 	}
@@ -144,11 +144,11 @@ func validateBlockHeader(prev *bc.BlockHeader, block *bc.Block) error {
 	}
 
 	// can be modified to allow soft fork
-	if block.TransactionsMerkleRoot != txMerkleRoot {
+	if block.TransactionsRoot() != txMerkleRoot {
 		return ErrBadTxRoot
 	}
 
-	if vmutil.IsUnspendable(block.ConsensusProgram) {
+	if vmutil.IsUnspendable(block.NextConsensusProgram()) {
 		return ErrBadScript
 	}
 

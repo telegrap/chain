@@ -86,7 +86,7 @@ func (s *Store) SaveBlock(ctx context.Context, block *bc.Block) error {
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (block_hash) DO NOTHING
 	`
-	_, err := s.db.Exec(ctx, q, block.Hash(), block.Height, block, &block.BlockHeader)
+	_, err := s.db.Exec(ctx, q, block.Hash(), block.Height, block, block.Header.Entry.(*bc.BlockHeader))
 	if err != nil {
 		return errors.Wrap(err, "insert block")
 	}

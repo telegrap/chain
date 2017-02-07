@@ -27,7 +27,7 @@ func (c *Chain) Recover(ctx context.Context) (*bc.Block, *state.Snapshot, error)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "getting snapshot block")
 		}
-		c.lastQueuedSnapshot = b.Time()
+		c.lastQueuedSnapshot = bc.Time(b.TimestampMS())
 	}
 	if snapshot == nil {
 		snapshot = state.Empty()
@@ -51,9 +51,9 @@ func (c *Chain) Recover(ctx context.Context) (*bc.Block, *state.Snapshot, error)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "applying block")
 		}
-		if b.AssetsMerkleRoot != snapshot.Tree.RootHash() {
+		if b.AssetsRoot() != snapshot.Tree.RootHash() {
 			return nil, nil, fmt.Errorf("block %d has state root %s; snapshot has root %s",
-				b.Height, b.AssetsMerkleRoot, snapshot.Tree.RootHash())
+				b.Height, b.AssetsRoot(), snapshot.Tree.RootHash())
 		}
 	}
 	if b != nil {

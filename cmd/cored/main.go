@@ -47,7 +47,6 @@ import (
 	"chain/net/http/limit"
 	"chain/protocol"
 	"chain/protocol/bc"
-	_ "chain/protocol/tx" // for TxHash init
 )
 
 const (
@@ -436,10 +435,10 @@ type remoteHSM struct {
 	Client *rpc.Client
 }
 
-func (h *remoteHSM) Sign(ctx context.Context, pk ed25519.PublicKey, bh *bc.BlockHeader) (signature []byte, err error) {
+func (h *remoteHSM) Sign(ctx context.Context, pk ed25519.PublicKey, bh *bc.EntryRef) (signature []byte, err error) {
 	body := struct {
-		Block *bc.BlockHeader `json:"block"`
-		Pub   json.HexBytes   `json:"pubkey"`
+		Block *bc.EntryRef  `json:"block"`
+		Pub   json.HexBytes `json:"pubkey"`
 	}{bh, json.HexBytes(pk[:])}
 	err = h.Client.Call(ctx, "/sign-block", body, &signature)
 	return

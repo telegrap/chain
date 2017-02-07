@@ -11,7 +11,7 @@ type (
 			ID           Hash
 			ExpirationMS uint64
 		}
-		VMContexts []*VMContext // one per old-style Input
+		VMContexts map[Hash]*VMContext // one per old-style Input
 	}
 
 	VMContext struct {
@@ -24,16 +24,8 @@ type (
 	}
 )
 
-// TxHashesFunc is initialized to the function of the same name
-// in chain/protocol/tx.
-// It is a variable here to avoid a circular dependency
-// between package bc and package tx.
-// TODO: find a better name for this
-// (obvious name is TxHashes, same as the type)
-var TxHashesFunc func(*TxData) (*TxHashes, error)
-
-func (t TxHashes) SigHash(n uint32) Hash {
-	return t.VMContexts[n].TxSigHash
+func (t TxHashes) SigHash(entryRef Hash) Hash {
+	return t.VMContexts[entryRef].TxSigHash
 }
 
 // BlockHeaderHashFunc is initialized to a function in protocol/tx

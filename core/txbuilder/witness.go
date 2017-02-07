@@ -25,11 +25,11 @@ type SignFunc func(context.Context, chainkd.XPub, [][]byte, [32]byte) ([]byte, e
 type WitnessComponent interface {
 	// Sign is called to add signatures. Actual signing is delegated to
 	// a callback function.
-	Sign(context.Context, *Template, uint32, []chainkd.XPub, SignFunc) error
+	Sign(context.Context, *Template, *bc.EntryRef, []chainkd.XPub, SignFunc) error
 
 	// Materialize is called to turn the component into a vector of
 	// arguments for the input witness.
-	Materialize(*Template, uint32, *[][]byte) error
+	Materialize(*Template, bc.Hash, *[][]byte) error
 }
 
 // materializeWitnesses takes a filled in Template and "materializes"
@@ -42,24 +42,37 @@ func materializeWitnesses(txTemplate *Template) error {
 		return errors.Wrap(ErrMissingRawTx)
 	}
 
-	if len(txTemplate.SigningInstructions) > len(msg.Inputs) {
+	if len(txTemplate.SigningInstructions) > len(msg.Outputs)+len(msg.Retirements) {
 		return errors.Wrap(ErrBadInstructionCount)
 	}
 
-	for i, sigInst := range txTemplate.SigningInstructions {
-		if msg.Inputs[sigInst.Position] == nil {
-			return errors.WithDetailf(ErrBadTxInputIdx, "signing instruction %d references missing tx input %d", i, sigInst.Position)
-		}
-
-		var witness [][]byte
-		for j, c := range sigInst.WitnessComponents {
-			err := c.Materialize(txTemplate, sigInst.Position, &witness)
-			if err != nil {
-				return errors.WithDetailf(err, "error in witness component %d of input %d", j, i)
+	for _, spRef := range msg.Spends {
+		hash := spRef.Hash()
+		if sigInst, ok := txTemplate.SigningInstructions[hash]; ok {
+			var witness [][]byte
+			for j, c := range sigInst.WitnessComponents {
+				err := c.Materialize(txTemplate, hash, &witness)
+				if err != nil {
+					return errors.WithDetailf(err, "error in witness component %d of input %x", j, hash[:])
+				}
 			}
+			sp := spRef.Entry.(*bc.Spend)
+			sp.SetArguments(witness)
 		}
-
-		msg.Inputs[sigInst.Position].SetArguments(witness)
+	}
+	for _, issRef := range msg.Issuances {
+		hash := issRef.Hash()
+		if sigInst, ok := txTemplate.SigningInstructions[hash]; ok {
+			var witness [][]byte
+			for j, c := range sigInst.WitnessComponents {
+				err := c.Materialize(txTemplate, hash, &witness)
+				if err != nil {
+					return errors.WithDetailf(err, "error in witness component %d of input %x", j, hash[:])
+				}
+			}
+			iss := issRef.Entry.(*bc.Issuance)
+			iss.SetArguments(witness)
+		}
 	}
 
 	return nil
@@ -101,13 +114,13 @@ var ErrEmptyProgram = errors.New("empty signature program")
 //  - the mintime and maxtime of the transaction (if non-zero)
 //  - the outputID and (if non-empty) reference data of the current input
 //  - the assetID, amount, control program, and (if non-empty) reference data of each output.
-func (sw *SignatureWitness) Sign(ctx context.Context, tpl *Template, index uint32, xpubs []chainkd.XPub, signFn SignFunc) error {
+func (sw *SignatureWitness) Sign(ctx context.Context, tpl *Template, inpRef *bc.EntryRef, xpubs []chainkd.XPub, signFn SignFunc) error {
 	// Compute the predicate to sign. This is either a
 	// txsighash program if tpl.AllowAdditional is false (i.e., the tx is complete
 	// and no further changes are allowed) or a program enforcing
 	// constraints derived from the existing outputs and current input.
 	if len(sw.Program) == 0 {
-		sw.Program = buildSigProgram(tpl, tpl.SigningInstructions[index].Position)
+		sw.Program = buildSigProgram(tpl, inpRef)
 		if len(sw.Program) == 0 {
 			return ErrEmptyProgram
 		}
@@ -152,9 +165,9 @@ func contains(list []chainkd.XPub, key chainkd.XPub) bool {
 	return false
 }
 
-func buildSigProgram(tpl *Template, index uint32) []byte {
+func buildSigProgram(tpl *Template, inpRef *bc.EntryRef) []byte {
 	if !tpl.AllowAdditional {
-		h := tpl.Hash(index)
+		h := tpl.Hash(inpRef.Hash())
 		builder := vmutil.NewBuilder()
 		builder.AddData(h[:])
 		builder.AddOp(vm.OP_TXSIGHASH).AddOp(vm.OP_EQUAL)
@@ -162,37 +175,51 @@ func buildSigProgram(tpl *Template, index uint32) []byte {
 	}
 	constraints := make([]constraint, 0, 3+len(tpl.Transaction.Outputs))
 	constraints = append(constraints, &timeConstraint{
-		minTimeMS: tpl.Transaction.MinTime,
-		maxTimeMS: tpl.Transaction.MaxTime,
+		minTimeMS: tpl.Transaction.MinTimeMS(),
+		maxTimeMS: tpl.Transaction.MaxTimeMS(),
 	})
-	inp := tpl.Transaction.Inputs[index]
-	if !inp.IsIssuance() {
-		constraints = append(constraints, outputIDConstraint(inp.SpentOutputID()))
+	if sp, ok := inpRef.Entry.(*bc.Spend); ok {
+		constraints = append(constraints, outputIDConstraint(sp.OutputID()))
 	}
 
-	// Commitment to the tx-level refdata is conditional on it being
-	// non-empty. Commitment to the input-level refdata is
-	// unconditional. Rationale: no one should be able to change "my"
-	// reference data; anyone should be able to set tx refdata but, once
-	// set, it should be immutable.
-	if len(tpl.Transaction.ReferenceData) > 0 {
-		constraints = append(constraints, refdataConstraint{tpl.Transaction.ReferenceData, true})
+	// Commitment to refdata is conditional on it being non-zero.
+	data := tpl.Transaction.Data()
+	if (data != bc.Hash{}) {
+		constraints = append(constraints, refdataConstraint{data[:], true})
 	}
-	constraints = append(constraints, refdataConstraint{inp.ReferenceData, false})
+	switch inp := inpRef.Entry.(type) {
+	case *bc.Issuance:
+		data = inp.Data()
+	case *bc.Spend:
+		data = inp.Data()
+	default:
+		data = bc.Hash{}
+	}
+	if (data != bc.Hash{}) {
+		constraints = append(constraints, refdataConstraint{data[:], false})
+	}
 
-	for i, out := range tpl.Transaction.Outputs {
+	for _, outRef := range tpl.Transaction.Outputs {
+		out := outRef.Entry.(*bc.Output)
 		c := &payConstraint{
-			Index:       i,
-			AssetAmount: out.AssetAmount,
-			Program:     out.ControlProgram,
-		}
-		if len(out.ReferenceData) > 0 {
-			var h [32]byte
-			sha3pool.Sum256(h[:], out.ReferenceData)
-			c.RefDataHash = (*bc.Hash)(&h)
+			Hash:        outRef.Hash(),
+			AssetAmount: bc.AssetAmount{AssetID: out.AssetID(), Amount: out.Amount()},
+			Program:     out.ControlProgram().Code, // xxx preserve vmversion?
+			Data:        out.Data(),
 		}
 		constraints = append(constraints, c)
 	}
+	for _, retRef := range tpl.Transaction.Retirements {
+		ret := retRef.Entry.(*bc.Retirement)
+		c := &payConstraint{
+			Hash:        retRef.Hash(),
+			AssetAmount: bc.AssetAmount{AssetID: ret.AssetID(), Amount: ret.Amount()},
+			// xxx what value for payConstraint.Program?
+			Data: ret.Data(),
+		}
+		constraints = append(constraints, c)
+	}
+
 	var program []byte
 	for i, c := range constraints {
 		program = append(program, c.code()...)
@@ -203,7 +230,7 @@ func buildSigProgram(tpl *Template, index uint32) []byte {
 	return program
 }
 
-func (sw SignatureWitness) Materialize(tpl *Template, index uint32, args *[][]byte) error {
+func (sw SignatureWitness) Materialize(tpl *Template, _ bc.Hash, args *[][]byte) error {
 	// This is the value of N for the CHECKPREDICATE call. The code
 	// assumes that everything already in the arg list before this call
 	// to Materialize is input to the signature program, so N is

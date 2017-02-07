@@ -176,8 +176,8 @@ func (c *Chain) setState(b *bc.Block, s *state.Snapshot) {
 	defer c.state.cond.L.Unlock()
 	c.state.block = b
 	c.state.snapshot = s
-	if b != nil && b.Height > c.state.height {
-		c.state.height = b.Height
+	if b != nil && b.Height() > c.state.height {
+		c.state.height = b.Height()
 		c.state.cond.Broadcast()
 	}
 }

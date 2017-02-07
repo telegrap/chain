@@ -110,22 +110,24 @@ func (reg *Registry) indexAssets(ctx context.Context, b *bc.Block) error {
 		seen             = make(map[bc.AssetID]bool)
 	)
 	for _, tx := range b.Transactions {
-		for _, in := range tx.Inputs {
-			if !in.IsIssuance() {
+		for _, issRef := range tx.Issuances {
+			iss := issRef.Entry.(*bc.Issuance)
+			assetID := iss.AssetID()
+			if seen[assetID] {
 				continue
 			}
-			if seen[in.AssetID()] {
-				continue
-			}
-			if ii, ok := in.TypedInput.(*bc.IssuanceInput); ok {
-				id := in.AssetID()
-				definition := ii.AssetDefinition
-				seen[id] = true
-				assetIDs = append(assetIDs, id[:])
-				definitions = append(definitions, string(definition))
-				vmVersions = append(vmVersions, int64(ii.VMVersion))
-				issuancePrograms = append(issuancePrograms, in.IssuanceProgram())
-			}
+
+			seen[assetID] = true
+
+			assetIDs = append(assetIDs, assetID[:])
+
+			defHash := iss.AssetDefinitionHash()
+			definition := lookupAssetDefinition(defHash)
+			definitions = append(definitions, string(definition))
+
+			issuanceProgram := iss.IssuanceProgram()
+			vmVersions = append(vmVersions, int64(issuanceProgram.VMVersion))
+			issuancePrograms = append(issuancePrograms, issuanceProgram.Code)
 		}
 	}
 	if len(assetIDs) == 0 {
@@ -152,7 +154,7 @@ func (reg *Registry) indexAssets(ctx context.Context, b *bc.Block) error {
 		SELECT id FROM assets WHERE first_block_height = $7
 	`
 	var newAssetIDs []bc.AssetID
-	err := pg.ForQueryRows(ctx, reg.db, q, assetIDs, vmVersions, issuancePrograms, definitions, b.Time(), reg.initialBlockHash, b.Height,
+	err := pg.ForQueryRows(ctx, reg.db, q, assetIDs, vmVersions, issuancePrograms, definitions, bc.Time(b.TimestampMS()), reg.initialBlockHash, b.Height,
 		func(assetID bc.AssetID) { newAssetIDs = append(newAssetIDs, assetID) })
 	if err != nil {
 		return errors.Wrap(err, "error indexing non-local assets")
@@ -175,5 +177,10 @@ func (reg *Registry) indexAssets(ctx context.Context, b *bc.Block) error {
 			return errors.Wrap(err, "indexing annotated asset")
 		}
 	}
+	return nil
+}
+
+func lookupAssetDefinition(hash bc.Hash) []byte {
+	// xxx
 	return nil
 }

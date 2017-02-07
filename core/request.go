@@ -15,7 +15,7 @@ var (
 )
 
 type buildRequest struct {
-	Tx      *bc.TxData               `json:"base_transaction"`
+	Tx      *bc.Transaction          `json:"base_transaction"`
 	Actions []map[string]interface{} `json:"actions"`
 	TTL     json.Duration            `json:"ttl"`
 }

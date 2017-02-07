@@ -26,7 +26,7 @@ var ErrInvalidKey = errors.New("misconfigured signer public key")
 // Signer provides the interface for computing the block signature. It's
 // implemented by the MockHSM and our signerd client.
 type Signer interface {
-	Sign(context.Context, ed25519.PublicKey, *bc.BlockHeader) ([]byte, error)
+	Sign(ctx context.Context, pubkey ed25519.PublicKey, blockHeader *bc.EntryRef) ([]byte, error)
 }
 
 // BlockSigner validates and signs blocks.
@@ -51,7 +51,7 @@ func New(pub ed25519.PublicKey, hsm Signer, db pg.DB, c *protocol.Chain) *BlockS
 // SignBlock computes the signature for the block using
 // the private key in s.  It does not validate the block.
 func (s *BlockSigner) SignBlock(ctx context.Context, b *bc.Block) ([]byte, error) {
-	sig, err := s.hsm.Sign(ctx, s.Pub, &b.BlockHeader)
+	sig, err := s.hsm.Sign(ctx, s.Pub, b.Header)
 	if err != nil {
 		return nil, errors.Sub(ErrInvalidKey, err)
 	}
@@ -69,13 +69,13 @@ func (s *BlockSigner) String() string {
 // This function fails if this node has ever signed a different block at the
 // same height as b.
 func (s *BlockSigner) ValidateAndSignBlock(ctx context.Context, b *bc.Block) ([]byte, error) {
-	err := <-s.c.BlockSoonWaiter(ctx, b.Height-1)
+	err := <-s.c.BlockSoonWaiter(ctx, b.Height()-1)
 	if err != nil {
-		return nil, errors.Wrapf(err, "waiting for block at height %d", b.Height-1)
+		return nil, errors.Wrapf(err, "waiting for block at height %d", b.Height()-1)
 	}
-	prev, err := s.c.GetBlock(ctx, b.Height-1)
+	prev, err := s.c.GetBlock(ctx, b.Height()-1)
 	if err != nil {
-		return nil, errors.Wrap(err, "getting block at height %d", b.Height-1)
+		return nil, errors.Wrap(err, "getting block at height %d", b.Height()-1)
 	}
 	// TODO: Add the ability to change the consensus program
 	// by having a current consensus program, and a potential
@@ -83,7 +83,7 @@ func (s *BlockSigner) ValidateAndSignBlock(ctx context.Context, b *bc.Block) ([]
 	// has been used, it will become the current consensus program
 	// and the only signable consensus program until a new
 	// next is set.
-	if !bytes.Equal(b.ConsensusProgram, prev.ConsensusProgram) {
+	if !bytes.Equal(b.NextConsensusProgram(), prev.NextConsensusProgram()) {
 		return nil, errors.Wrap(ErrConsensusChange)
 	}
 	err = s.c.ValidateBlockForSig(ctx, b)

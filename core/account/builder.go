@@ -2,12 +2,10 @@ package account
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 
 	"chain/core/signers"
 	"chain/core/txbuilder"
-	"chain/database/pg"
 	chainjson "chain/encoding/json"
 	"chain/errors"
 	"chain/log"
@@ -68,11 +66,8 @@ func (a *spendAction) Build(ctx context.Context, b *txbuilder.TemplateBuilder) e
 	b.OnRollback(canceler(ctx, a.accounts, res.ID))
 
 	for _, r := range res.UTXOs {
-		txInput, sigInst, err := utxoToInputs(ctx, acct, r, a.ReferenceData)
-		if err != nil {
-			return errors.Wrap(err, "creating inputs")
-		}
-		err = b.AddInput(txInput, sigInst)
+		var refdataHash bc.Hash // xxx initialize from a.ReferenceData
+		err = b.AddPrevoutSpend(r.OutputID, r.Prevout, refdataHash, utxoToSigInst(r, acct))
 		if err != nil {
 			return errors.Wrap(err, "adding inputs")
 		}
@@ -83,11 +78,11 @@ func (a *spendAction) Build(ctx context.Context, b *txbuilder.TemplateBuilder) e
 		if err != nil {
 			return errors.Wrap(err, "creating control program")
 		}
-
 		// Don't insert the control program until callbacks are executed.
 		a.accounts.insertControlProgramDelayed(ctx, b, acp)
-
-		err = b.AddOutput(bc.NewTxOutput(a.AssetID, res.Change, acp.controlProgram, nil))
+		chgValue := bc.AssetAmount{AssetID: a.AssetID, Amount: res.Change}
+		chgProg := bc.Program{VMVersion: 1, Code: acp.controlProgram}
+		err = b.AddOutput(chgValue, chgProg, bc.Hash{})
 		if err != nil {
 			return errors.Wrap(err, "adding change output")
 		}
@@ -112,7 +107,6 @@ type spendUTXOAction struct {
 	accounts *Manager
 	OutputID *bc.Hash `json:"output_id"`
 	TxHash   *bc.Hash `json:"transaction_id"`
-	TxOut    *uint32  `json:"position"`
 
 	ReferenceData chainjson.Map `json:"reference_data"`
 	ClientToken   *string       `json:"client_token"`
@@ -121,22 +115,10 @@ type spendUTXOAction struct {
 func (a *spendUTXOAction) Build(ctx context.Context, b *txbuilder.TemplateBuilder) error {
 	var outid bc.Hash
 
-	if a.OutputID != nil {
-		outid = *a.OutputID
-	} else if a.TxHash != nil && a.TxOut != nil {
-		// This is compatibility layer - legacy apps can spend outputs via the raw <txid:index> pair.
-		q := `SELECT output_id FROM account_utxos WHERE tx_hash=$1 AND index=$2`
-		err := a.accounts.utxoDB.db.QueryRow(ctx, q, *a.TxHash, *a.TxOut).Scan(&outid)
-		if err == sql.ErrNoRows {
-			return pg.ErrUserInputNotFound
-		} else if err != nil {
-			return err
-		}
-	} else {
-		// Note: here we do not attempt to check if txid is present, but position is missing, or vice versa.
-		// Instead, the user has to update their code to use the new API anyway.
+	if a.OutputID == nil {
 		return txbuilder.MissingFieldsError("output_id")
 	}
+	outid = *a.OutputID
 
 	res, err := a.accounts.utxoDB.ReserveUTXO(ctx, outid, a.ClientToken, b.MaxTime())
 	if err != nil {
@@ -148,11 +130,9 @@ func (a *spendUTXOAction) Build(ctx context.Context, b *txbuilder.TemplateBuilde
 	if err != nil {
 		return err
 	}
-	txInput, sigInst, err := utxoToInputs(ctx, acct, res.UTXOs[0], a.ReferenceData)
-	if err != nil {
-		return err
-	}
-	return b.AddInput(txInput, sigInst)
+	u := res.UTXOs[0]
+	var refdataHash bc.Hash // xxx initialize from a.ReferenceData
+	return b.AddPrevoutSpend(u.OutputID, u.Prevout, refdataHash, utxoToSigInst(u, acct))
 }
 
 // Best-effort cancellation attempt to put in txbuilder.BuildResult.Rollback.
@@ -165,23 +145,14 @@ func canceler(ctx context.Context, m *Manager, rid uint64) func() {
 	}
 }
 
-func utxoToInputs(ctx context.Context, account *signers.Signer, u *utxo, refData []byte) (
-	*bc.TxInput,
-	*txbuilder.SigningInstruction,
-	error,
-) {
-	txInput := bc.NewSpendInput(u.OutputID, nil, u.AssetID, u.Amount, u.ControlProgram, refData)
-
+func utxoToSigInst(u *utxo, account *signers.Signer) *txbuilder.SigningInstruction {
 	sigInst := &txbuilder.SigningInstruction{
-		AssetAmount: u.AssetAmount,
+		AssetAmount: u.Prevout.AssetAmount,
 	}
-
 	path := signers.Path(account, signers.AccountKeySpace, u.ControlProgramIndex)
 	keyIDs := txbuilder.KeyIDs(account.XPubs, path)
-
 	sigInst.AddWitnessKeys(keyIDs, account.Quorum)
-
-	return txInput, sigInst, nil
+	return sigInst
 }
 
 func (m *Manager) NewControlAction(amt bc.AssetAmount, accountID string, refData chainjson.Map) txbuilder.Action {
@@ -225,7 +196,9 @@ func (a *controlAction) Build(ctx context.Context, b *txbuilder.TemplateBuilder)
 	}
 	a.accounts.insertControlProgramDelayed(ctx, b, acp)
 
-	return b.AddOutput(bc.NewTxOutput(a.AssetID, a.Amount, acp.controlProgram, a.ReferenceData))
+	prog := bc.Program{VMVersion: 1, Code: acp.controlProgram}
+	var refdataHash bc.Hash // xxx initialize from a.ReferenceData
+	return b.AddOutput(a.AssetAmount, prog, refdataHash)
 }
 
 // insertControlProgramDelayed takes a template builder and an account

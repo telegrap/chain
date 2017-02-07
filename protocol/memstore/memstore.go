@@ -37,11 +37,11 @@ func (m *MemStore) SaveBlock(ctx context.Context, b *bc.Block) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	existing, ok := m.Blocks[b.Height]
+	existing, ok := m.Blocks[b.Height()]
 	if ok && existing.Hash() != b.Hash() {
 		return fmt.Errorf("already have a block at height %d", b.Height)
 	}
-	m.Blocks[b.Height] = b
+	m.Blocks[b.Height()] = b
 	return nil
 }
 

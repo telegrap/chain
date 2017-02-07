@@ -10,7 +10,6 @@ import (
 
 	"chain/core/query/filter"
 	"chain/errors"
-	"chain/protocol/bc"
 )
 
 var defaultOutputsAfter = OutputsAfter{
@@ -76,7 +75,6 @@ func (ind *Indexer) Outputs(ctx context.Context, filt string, vals []interface{}
 		var (
 			blockHeight  uint64
 			txPos        uint32
-			txID         = new(bc.Hash)
 			accountID    *string
 			accountAlias *string
 			out          = new(AnnotatedOutput)
@@ -84,8 +82,7 @@ func (ind *Indexer) Outputs(ctx context.Context, filt string, vals []interface{}
 		err = rows.Scan(
 			&blockHeight,
 			&txPos,
-			&out.Position,
-			txID,
+			&out.TransactionID,
 			&out.OutputID,
 			&out.Type,
 			&out.Purpose,
@@ -105,8 +102,6 @@ func (ind *Indexer) Outputs(ctx context.Context, filt string, vals []interface{}
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "scanning annotated output")
 		}
-
-		out.TransactionID = txID
 
 		// Set nullable fields.
 		if accountID != nil {
@@ -134,7 +129,7 @@ func constructOutputsQuery(where string, vals []interface{}, timestampMS uint64,
 	var buf bytes.Buffer
 
 	buf.WriteString("SELECT ")
-	buf.WriteString("block_height, tx_pos, output_index, tx_hash, output_id, type, purpose, ")
+	buf.WriteString("block_height, tx_pos, tx_hash, output_id, type, purpose, ")
 	buf.WriteString("asset_id, asset_alias, asset_definition, asset_tags, asset_local, ")
 	buf.WriteString("amount, account_id, account_alias, account_tags, control_program, ")
 	buf.WriteString("reference_data, local")

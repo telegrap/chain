@@ -85,7 +85,7 @@ func Fetch(ctx context.Context, c *protocol.Chain, peer *rpc.Client, health func
 
 	var height uint64
 	if prevBlock != nil {
-		height = prevBlock.Height
+		height = prevBlock.Height()
 	}
 
 	blockch, errch := DownloadBlocks(ctx, peer, height+1)
@@ -355,7 +355,7 @@ func fetchSnapshot(ctx context.Context, peer *rpc.Client, s protocol.Store, atte
 		// Something seriously funny is still afoot.
 		return errors.New("generator provided snapshot but could not provide block")
 	}
-	if snapshotBlock.AssetsMerkleRoot != snapshot.Tree.RootHash() {
+	if snapshotBlock.AssetsRoot() != snapshot.Tree.RootHash() {
 		return errors.New("snapshot merkle root doesn't match block")
 	}
 
@@ -368,7 +368,7 @@ func fetchSnapshot(ctx context.Context, peer *rpc.Client, s protocol.Store, atte
 	if err != nil {
 		return errors.Wrap(err, "saving bootstrap block")
 	}
-	err = s.SaveSnapshot(ctx, snapshotBlock.Height, snapshot)
+	err = s.SaveSnapshot(ctx, snapshotBlock.Height(), snapshot)
 	return errors.Wrap(err, "saving bootstrap snaphot")
 }
 

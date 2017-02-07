@@ -80,11 +80,11 @@ func (g *Generator) commitBlock(ctx context.Context, b *bc.Block, s *state.Snaps
 }
 
 func (g *Generator) getAndAddBlockSignatures(ctx context.Context, b, prevBlock *bc.Block) error {
-	if prevBlock == nil && b.Height == 1 {
+	if prevBlock == nil && b.Height() == 1 {
 		return nil // no signatures needed for initial block
 	}
 
-	pubkeys, quorum, err := vmutil.ParseBlockMultiSigProgram(prevBlock.ConsensusProgram)
+	pubkeys, quorum, err := vmutil.ParseBlockMultiSigProgram(prevBlock.NextConsensusProgram())
 	if err != nil {
 		return errors.Wrap(err, "parsing prevblock output script")
 	}
@@ -122,7 +122,7 @@ func (g *Generator) getAndAddBlockSignatures(ctx context.Context, b, prevBlock *
 	if nready < quorum {
 		return fmt.Errorf("got %d of %d needed signatures", nready, quorum)
 	}
-	b.Witness = nonNilSigs(goodSigs)
+	b.SetArguments(nonNilSigs(goodSigs))
 	return nil
 }
 

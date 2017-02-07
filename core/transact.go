@@ -85,10 +85,9 @@ func (a *API) buildSingle(ctx context.Context, req *buildRequest) (*txbuilder.Te
 	if err != nil {
 		return nil, err
 	}
-
 	// ensure null is never returned for signing instructions
 	if tpl.SigningInstructions == nil {
-		tpl.SigningInstructions = []*txbuilder.SigningInstruction{}
+		tpl.SigningInstructions = make(map[bc.Hash]*txbuilder.SigningInstruction)
 	}
 	return tpl, nil
 }
@@ -137,7 +136,7 @@ func (a *API) submitSingle(ctx context.Context, tpl *txbuilder.Template, waitUnt
 		return nil, errors.Wrapf(err, "tx %s", tpl.Transaction.ID)
 	}
 
-	return map[string]string{"id": tpl.Transaction.ID.String()}, nil
+	return map[string]string{"id": tpl.Transaction.ID().String()}, nil
 }
 
 // recordSubmittedTx records a lower bound height at which the tx
@@ -216,7 +215,7 @@ func (a *API) finalizeTxWait(ctx context.Context, txTemplate *txbuilder.Template
 	}
 
 	// Remember this height in case we retry this submit call.
-	height, err := recordSubmittedTx(ctx, a.DB, txTemplate.Transaction.ID, generatorHeight)
+	height, err := recordSubmittedTx(ctx, a.DB, txTemplate.Transaction.ID(), generatorHeight)
 	if err != nil {
 		return errors.Wrap(err, "saving tx submitted height")
 	}
@@ -246,7 +245,7 @@ func (a *API) finalizeTxWait(ctx context.Context, txTemplate *txbuilder.Template
 	return nil
 }
 
-func (a *API) waitForTxInBlock(ctx context.Context, tx *bc.Tx, height uint64) (uint64, error) {
+func (a *API) waitForTxInBlock(ctx context.Context, tx *bc.Transaction, height uint64) (uint64, error) {
 	for {
 		height++
 		select {
@@ -259,13 +258,13 @@ func (a *API) waitForTxInBlock(ctx context.Context, tx *bc.Tx, height uint64) (u
 				return 0, errors.Wrap(err, "getting block that just landed")
 			}
 			for _, confirmed := range b.Transactions {
-				if confirmed.ID == tx.ID {
+				if confirmed.ID() == tx.ID() {
 					// confirmed
 					return height, nil
 				}
 			}
 
-			if tx.MaxTime > 0 && tx.MaxTime < b.TimestampMS {
+			if tx.MaxTimeMS() > 0 && tx.MaxTimeMS() < b.TimestampMS() {
 				return 0, errors.Wrap(txbuilder.ErrRejected, "transaction max time exceeded")
 			}
 
