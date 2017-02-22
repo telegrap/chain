@@ -97,7 +97,7 @@ func mapTx(tx *bc.TxData) (headerID bc.Hash, hdr *Header, entryMap map[bc.Hash]E
 		}
 	}
 
-	muxID, _, err := addEntry(newMux(muxSources, program{VMVersion: 1, Code: []byte{byte(vm.OP_TRUE)}}))
+	muxID, _, err := addEntry(newMux(muxSources, bc.Program{VMVersion: 1, Code: []byte{byte(vm.OP_TRUE)}}))
 	if err != nil {
 		err = errors.Wrap(err, "adding mux entry")
 		return

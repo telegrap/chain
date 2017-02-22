@@ -6,7 +6,6 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 
-	"chain/protocol/bc"
 	"chain/testutil"
 )
 
