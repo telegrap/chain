@@ -85,9 +85,8 @@ func (c *Chain) GenerateBlock(ctx context.Context, prev *bc.Block, snapshot *sta
 
 	assetsRoot := result.Tree.RootHash()
 
-	bh := bc.NewBlockHeader(1, prev.Height()+1, prev.Hash(), timestampMS, transactionsRoot, assetsRoot, prev.NextConsensusProgram())
 	b = &bc.Block{
-		Header:       &bc.EntryRef{Entry: bh},
+		Header:       bc.NewBlockHeader(1, prev.Height()+1, prev.Hash(), timestampMS, transactionsRoot, assetsRoot, prev.NextConsensusProgram()),
 		Transactions: blockTxs,
 	}
 
@@ -220,9 +219,8 @@ func NewInitialBlock(pubkeys []ed25519.PublicKey, nSigs int, timestamp time.Time
 		return nil, errors.Wrap(err, "calculating zero value of tx merkle root")
 	}
 
-	bh := bc.NewBlockHeader(1, 1, bc.Hash{}, bc.Millis(timestamp), root, bc.Hash{}, script)
 	b := &bc.Block{
-		Header: &bc.EntryRef{Entry: bh},
+		Header: bc.NewBlockHeader(1, 1, bc.Hash{}, bc.Millis(timestamp), root, bc.Hash{}, script),
 	}
 	return b, nil
 }

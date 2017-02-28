@@ -15,8 +15,7 @@ func topSort(txs []*bc.Transaction) []*bc.Transaction {
 	incomingEdges := make(map[bc.Hash]int)
 	children := make(map[bc.Hash][]bc.Hash)
 	for node, tx := range nodes {
-		for _, spRef := range tx.Spends {
-			sp := spRef.Entry.(*bc.Spend)
+		for _, sp := range tx.Spends {
 			spentOutputID := sp.OutputID()
 			if nodes[spentOutputID] != nil {
 				if children[spentOutputID] == nil {
@@ -65,8 +64,7 @@ func isTopSorted(txs []*bc.Transaction) bool {
 		exists[tx.ID()] = true
 	}
 	for _, tx := range txs {
-		for _, spRef := range tx.Spends {
-			sp := spRef.Entry.(*bc.Spend)
+		for _, sp := range tx.Spends {
 			spentOutputID := sp.OutputID()
 			if exists[spentOutputID] && !seen[spentOutputID] {
 				return false

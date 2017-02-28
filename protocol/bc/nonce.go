@@ -3,9 +3,10 @@ package bc
 type Nonce struct {
 	body struct {
 		Program   Program
-		TimeRange *EntryRef
+		TimeRange Hash
 		ExtHash   Hash
 	}
+	TimeRange *TimeRange
 }
 
 const typeNonce = "nonce1"
@@ -14,13 +15,13 @@ func (Nonce) Type() string            { return typeNonce }
 func (n *Nonce) Body() interface{}    { return &n.body }
 func (n *Nonce) Witness() interface{} { return nil }
 
-func (n *Nonce) TimeRange() *EntryRef {
-	return n.body.TimeRange
-}
-
-func NewNonce(p Program, tr *EntryRef) *Nonce {
+func NewNonce(p Program, tr *TimeRange) *Nonce {
 	n := new(Nonce)
 	n.body.Program = p
-	n.body.TimeRange = tr
+	if tr != nil {
+		id := EntryID(tr)
+		n.body.TimeRange = id
+		n.TimeRange = tr
+	}
 	return n
 }

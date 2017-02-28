@@ -111,12 +111,12 @@ func (m *Manager) indexAccountUTXOs(ctx context.Context, b *bc.Block) error {
 	// Upsert any UTXOs belonging to accounts managed by this Core.
 	outs := make([]*rawOutput, 0, len(b.Transactions))
 	for _, tx := range b.Transactions {
-		for _, resultRef := range tx.Results() {
+		for _, result := range tx.Results() {
 			raw := &rawOutput{
 				txHash:   tx.ID(),
-				outputID: resultRef.Hash(),
+				outputID: bc.EntryID(result),
 			}
-			switch res := resultRef.Entry.(type) {
+			switch res := result.(type) {
 			case *bc.Output:
 				raw.AssetAmount = bc.AssetAmount{
 					AssetID: res.AssetID(),
@@ -151,8 +151,7 @@ func (m *Manager) indexAccountUTXOs(ctx context.Context, b *bc.Block) error {
 
 func prevoutDBKeys(txs ...*bc.Transaction) (outputIDs pq.ByteaArray) {
 	for _, tx := range txs {
-		for _, spRef := range tx.Spends {
-			sp := spRef.Entry.(*bc.Spend)
+		for _, sp := range tx.Spends {
 			outputID := sp.OutputID()
 			outputIDs = append(outputIDs, outputID[:])
 		}

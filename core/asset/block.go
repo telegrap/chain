@@ -110,8 +110,7 @@ func (reg *Registry) indexAssets(ctx context.Context, b *bc.Block) error {
 		seen             = make(map[bc.AssetID]bool)
 	)
 	for _, tx := range b.Transactions {
-		for _, issRef := range tx.Issuances {
-			iss := issRef.Entry.(*bc.Issuance)
+		for _, iss := range tx.Issuances {
 			assetID := iss.AssetID()
 			if seen[assetID] {
 				continue

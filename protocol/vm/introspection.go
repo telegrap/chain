@@ -54,20 +54,20 @@ func opCheckOutput(vm *virtualMachine) error {
 
 	// The following is per the discussion at
 	// https://chainhq.slack.com/archives/txgraph/p1487964172000960
-	var inpDest bc.ValueDestination
-	switch inp := vm.input.Entry.(type) {
+	var inpDest bc.Entry
+	switch inp := vm.input.(type) {
 	case *bc.Spend:
-		inpDest = inp.Destination()
+		inpDest = inp.Destination
 	case *bc.Issuance:
-		inpDest = inp.Destination()
+		inpDest = inp.Destination
 	default:
 		// xxx error
 	}
-	mux, ok := inpDest.Ref.Entry.(*bc.Mux)
+	mux, ok := inpDest.(*bc.Mux)
 	if !ok {
 		return vm.pushBool(false, true)
 	}
-	muxDests := mux.Destinations()
+	muxDests := mux.Destinations
 	if index >= int64(len(muxDests)) {
 		return vm.pushBool(false, true) // xxx or should this be a range/badvalue error?
 	}
@@ -90,7 +90,7 @@ func opCheckOutput(vm *virtualMachine) error {
 		// with the control program [FAIL]. New-style retirements do not
 		// have control programs, but for compatibility we allow
 		// CHECKOUTPUT to test for when the [FAIL] program is specified.
-		r, ok := muxDests[index].Ref.Entry.(*bc.Retirement)
+		r, ok := muxDests[index].(*bc.Retirement)
 		if !ok {
 			return vm.pushBool(false, true)
 		}
@@ -98,7 +98,7 @@ func opCheckOutput(vm *virtualMachine) error {
 		return vm.pushBool(ok, true)
 	}
 
-	o, ok := muxDests[index].Ref.Entry.(*bc.Output)
+	o, ok := muxDests[index].(*bc.Output)
 	if !ok {
 		return vm.pushBool(false, true)
 	}
@@ -128,7 +128,7 @@ func opAsset(vm *virtualMachine) error {
 
 	var assetID bc.AssetID
 
-	switch e := vm.input.Entry.(type) {
+	switch e := vm.input.(type) {
 	case *bc.Spend:
 		assetID = e.AssetAmount().AssetID
 
@@ -154,7 +154,7 @@ func opAmount(vm *virtualMachine) error {
 
 	var amount uint64
 
-	switch e := vm.input.Entry.(type) {
+	switch e := vm.input.(type) {
 	case *bc.Spend:
 		amount = e.AssetAmount().Amount
 
@@ -224,7 +224,7 @@ func opRefDataHash(vm *virtualMachine) error {
 
 	var h bc.Hash
 
-	switch e := vm.input.Entry.(type) {
+	switch e := vm.input.(type) {
 	case *bc.Spend:
 		h = e.Data()
 	case *bc.Issuance:
@@ -255,7 +255,7 @@ func opOutputID(vm *virtualMachine) error {
 		return ErrContext
 	}
 
-	sp, ok := vm.input.Entry.(*bc.Spend)
+	sp, ok := vm.input.(*bc.Spend)
 	if !ok {
 		return ErrContext
 	}
@@ -277,7 +277,7 @@ func opNonce(vm *virtualMachine) error {
 		return ErrContext
 	}
 
-	_, ok := vm.input.Entry.(*bc.Issuance)
+	_, ok := vm.input.(*bc.Issuance)
 	if !ok {
 		return ErrContext
 	}

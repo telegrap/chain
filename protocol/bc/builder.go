@@ -17,11 +17,12 @@ type (
 	}
 
 	Builder struct {
-		h                 *Header
-		m                 *Mux
-		spends, issuances []*EntryRef
-		outputs           []*pendingOutput
-		retirements       []*pendingRetirement
+		h           *Header
+		m           *Mux
+		spends      []*Spend
+		issuances   []*Issuance
+		outputs     []*pendingOutput
+		retirements []*pendingRetirement
 	}
 )
 
@@ -31,24 +32,20 @@ func NewBuilder(version, minTimeMS, maxTimeMS uint64, base *Transaction) *Builde
 		m: newMux(nil, Program{VMVersion: 1, Code: []byte{0x51}}), // 0x51 == OP_TRUE (without the circular dependency)
 	}
 	if base != nil {
-		for _, issRef := range base.Issuances {
-			iss := issRef.Entry.(*Issuance)
-			result.AddIssuance(iss.Anchor(), AssetAmount{AssetID: iss.AssetID(), Amount: iss.Amount()}, iss.Data())
+		for _, iss := range base.Issuances {
+			result.AddIssuance(iss.Anchor, AssetAmount{AssetID: iss.AssetID(), Amount: iss.Amount()}, iss.Data())
 		}
-		for _, spRef := range base.Spends {
-			sp := spRef.Entry.(*Spend)
-			if sp.body.SpentOutput.Entry != nil {
-				result.AddFullSpend(sp.body.SpentOutput, sp.Data())
+		for _, sp := range base.Spends {
+			if sp.SpentOutput != nil {
+				result.AddFullSpend(sp.SpentOutput, sp.Data())
 			} else {
-				result.AddPrevoutSpend(sp.body.SpentOutput.Hash(), sp.prevout, sp.Data())
+				result.AddPrevoutSpend(sp.body.SpentOutput, sp.prevout, sp.Data())
 			}
 		}
-		for _, oRef := range base.Outputs {
-			o := oRef.Entry.(*Output)
+		for _, o := range base.Outputs {
 			result.AddOutput(AssetAmount{AssetID: o.AssetID(), Amount: o.Amount()}, o.ControlProgram(), o.Data())
 		}
-		for _, rRef := range base.Retirements {
-			r := rRef.Entry.(*Retirement)
+		for _, r := range base.Retirements {
 			result.AddRetirement(AssetAmount{AssetID: r.AssetID(), Amount: r.Amount()}, r.Data())
 		}
 	}
@@ -79,15 +76,17 @@ func (b *Builder) MaxTimeMS() uint64 {
 	return b.h.MaxTimeMS()
 }
 
-func (b *Builder) AddIssuance(nonce *EntryRef, value AssetAmount, data Hash) *EntryRef {
-	issRef := &EntryRef{Entry: newIssuance(nonce, value, data)}
-	b.issuances = append(b.issuances, issRef)
+func (b *Builder) AddIssuance(nonce Entry, value AssetAmount, data Hash) *Issuance {
+	iss := newIssuance(nonce, value, data)
+	b.issuances = append(b.issuances, iss)
+	issID := EntryID(iss)
 	s := ValueSource{
-		Ref:   issRef,
+		Ref:   issID,
 		Value: value,
 	}
 	b.m.body.Sources = append(b.m.body.Sources, s)
-	return issRef
+	b.m.Sources = append(b.m.Sources, iss)
+	return iss
 }
 
 // AddOutput does not return an entry, unlike other Add
@@ -109,58 +108,62 @@ func (b *Builder) AddRetirement(value AssetAmount, data Hash) {
 	})
 }
 
-func (b *Builder) AddFullSpend(spentOutput *EntryRef, data Hash) *EntryRef {
+func (b *Builder) AddFullSpend(spentOutput *Output, data Hash) *Spend {
 	sp := NewFullSpend(spentOutput, data)
 	return b.addSpend(sp)
 }
 
-func (b *Builder) AddPrevoutSpend(outputID Hash, prevout *Prevout, data Hash) *EntryRef {
+func (b *Builder) AddPrevoutSpend(outputID Hash, prevout *Prevout, data Hash) *Spend {
 	sp := NewPrevoutSpend(outputID, prevout, data)
 	return b.addSpend(sp)
 }
 
-func (b *Builder) addSpend(sp *Spend) *EntryRef {
-	spRef := &EntryRef{Entry: sp}
-	b.spends = append(b.spends, spRef)
+func (b *Builder) addSpend(sp *Spend) *Spend {
+	b.spends = append(b.spends, sp)
 	src := ValueSource{
-		Ref:   spRef,
+		Ref:   EntryID(sp),
 		Value: sp.AssetAmount(),
 	}
 	b.m.body.Sources = append(b.m.body.Sources, src)
-	return spRef
+	b.m.Sources = append(b.m.Sources, sp)
+	return sp
 }
 
 func (b *Builder) Build() *Transaction {
 	var n uint64
-	muxRef := &EntryRef{Entry: b.m}
 	tx := &Transaction{
-		Header:    &EntryRef{Entry: b.h},
+		Header:    b.h,
 		Spends:    b.spends,
 		Issuances: b.issuances,
 	}
+	muxID := EntryID(b.m)
 	for _, po := range b.outputs {
 		s := ValueSource{
-			Ref:      muxRef,
+			Ref:      muxID,
 			Value:    po.value,
 			Position: n,
 		}
 		n++
 		o := NewOutput(s, po.controlProg, po.data)
-		oRef := &EntryRef{Entry: o}
-		b.h.body.Results = append(b.h.body.Results, oRef)
-		tx.Outputs = append(tx.Outputs, oRef)
+		o.Source = b.m
+		oID := EntryID(o)
+		b.h.body.Results = append(b.h.body.Results, oID)
+		b.h.Results = append(b.h.Results, o)
+		tx.Outputs = append(tx.Outputs, o)
 	}
 	for _, pr := range b.retirements {
 		s := ValueSource{
-			Ref:      muxRef,
+			Ref:      muxID,
 			Value:    pr.value,
 			Position: n,
 		}
 		n++
 		r := newRetirement(s, pr.data)
-		rRef := &EntryRef{Entry: r}
-		b.h.body.Results = append(b.h.body.Results, rRef)
-		tx.Retirements = append(tx.Retirements, rRef)
+		r.Source = b.m
+		rID := EntryID(r)
+		b.h.body.Results = append(b.h.body.Results, rID)
+		b.h.Results = append(b.h.Results, r)
+		tx.Retirements = append(tx.Retirements, r)
 	}
 	return tx
 }

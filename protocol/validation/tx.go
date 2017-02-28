@@ -73,26 +73,20 @@ func ConfirmTx(snapshot *state.Snapshot, initialBlockHash bc.Hash, blockVersion,
 		return badTxErr(errTooLate)
 	}
 
-	for _, issRef := range tx.Issuances {
-		iss := issRef.Entry.(*bc.Issuance)
+	for _, iss := range tx.Issuances {
 		if iss.InitialBlockID() != initialBlockHash {
 			return badTxErr(errWrongBlockchain)
 		}
 		// xxx check for empty nonce? old code had "if len(ii.Nonce) == 0 { continue }"
-		anchorRef := iss.Anchor()
-		if anchorRef == nil {
+		if iss.Anchor == nil {
 			// xxx continue ??
 		}
-		nonce, ok := anchorRef.Entry.(*bc.Nonce)
+		nonce, ok := iss.Anchor.(*bc.Nonce)
 		if !ok {
 			// xxx continue ??
 		}
-		trRef := nonce.TimeRange()
-		if trRef == nil {
-			// xxx continue ??
-		}
-		tr, ok := trRef.Entry.(*bc.TimeRange)
-		if !ok {
+		tr := nonce.TimeRange
+		if tr == nil {
 			// xxx continue ??
 		}
 		if tr.MinTimeMS() == 0 || tr.MaxTimeMS() == 0 {
@@ -104,11 +98,10 @@ func ConfirmTx(snapshot *state.Snapshot, initialBlockHash bc.Hash, blockVersion,
 		// xxx check issuance memory
 	}
 
-	for _, spRef := range tx.Spends {
-		sp := spRef.Entry.(*bc.Spend)
+	for _, sp := range tx.Spends {
 		spentOutputID := sp.OutputID()
 		if !snapshot.Tree.Contains(spentOutputID[:]) {
-			inputID := spRef.Hash()
+			inputID := bc.EntryID(sp)
 			return badTxErrf(errInvalidOutput, "output %x for spend input %x is invalid", spentOutputID[:], inputID[:])
 		}
 	}
@@ -143,12 +136,8 @@ func CheckTxWellFormed(tx *bc.Transaction) error {
 	if len(tx.Spends) > 0 {
 		allIssuancesWithEmptyNonces = false
 	} else {
-		for _, issRef := range tx.Issuances {
-			iss, ok := issRef.Entry.(*bc.Issuance)
-			if !ok {
-				// xxx (impossible?) error
-			}
-			if iss.Anchor() != nil { // xxx is this the right test?
+		for _, iss := range tx.Issuances {
+			if iss.Anchor != nil { // xxx is this the right test?
 				allIssuancesWithEmptyNonces = false
 				break
 			}
@@ -172,8 +161,7 @@ func CheckTxWellFormed(tx *bc.Transaction) error {
 	// are less than 2^63 so that they don't overflow their int64 representation.
 	parity := make(map[bc.AssetID]int64)
 
-	for _, spRef := range tx.Spends {
-		sp := spRef.Entry.(*bc.Spend)
+	for _, sp := range tx.Spends {
 		assetAmount := sp.AssetAmount()
 		assetID := assetAmount.AssetID
 		amount := assetAmount.Amount
@@ -182,22 +170,21 @@ func CheckTxWellFormed(tx *bc.Transaction) error {
 		}
 		sum, ok := checked.AddInt64(parity[assetID], int64(amount))
 		if !ok {
-			id := spRef.Hash()
+			id := bc.EntryID(sp)
 			return badTxErrf(errInputSumTooBig, "adding input %x overflows the allowed asset amount", id[:])
 		}
 		parity[assetID] = sum
 		if txVersion == 1 {
 			prog := sp.ControlProgram()
 			if prog.VMVersion != 1 {
-				id := spRef.Hash()
+				id := bc.EntryID(sp)
 				outID := sp.OutputID()
 				return badTxErrf(errVMVersion, "unknown vm version %d in input %x (spending output %x) for transaction version %d", prog.VMVersion, id[:], outID[:], txVersion)
 			}
 		}
 	}
 
-	for _, issRef := range tx.Issuances {
-		iss := issRef.Entry.(*bc.Issuance)
+	for _, iss := range tx.Issuances {
 		amount := iss.Amount()
 		if amount > math.MaxInt64 {
 			return badTxErr(errInputTooBig)
@@ -205,30 +192,27 @@ func CheckTxWellFormed(tx *bc.Transaction) error {
 		assetID := iss.AssetID()
 		sum, ok := checked.AddInt64(parity[assetID], int64(amount))
 		if !ok {
-			id := issRef.Hash()
+			id := bc.EntryID(iss)
 			return badTxErrf(errInputSumTooBig, "adding input %x overflows the allowed asset amount", id[:])
 		}
 		parity[assetID] = sum
 		if txVersion == 1 {
 			prog := iss.IssuanceProgram()
 			if prog.VMVersion != 1 {
-				id := issRef.Hash()
+				id := bc.EntryID(iss)
 				return badTxErrf(errVMVersion, "unknown vm version %d in input %x for transaction version %d", prog.VMVersion, id[:], txVersion)
 			}
 		}
-		nonceRef := iss.Anchor()
-		_, ok = nonceRef.Entry.(*bc.Nonce)
-		if !ok {
+		if _, ok = iss.Anchor.(*bc.Nonce); !ok {
 			// xxx
 		}
 	}
 
-	for _, outRef := range tx.Outputs {
-		out := outRef.Entry.(*bc.Output)
+	for _, out := range tx.Outputs {
 		if txVersion == 1 {
 			prog := out.ControlProgram()
 			if prog.VMVersion != 1 {
-				id := outRef.Hash()
+				id := bc.EntryID(out)
 				return badTxErrf(errVMVersion, "unknown vm version %d in output %x for transaction version %d", prog.VMVersion, id[:], txVersion)
 			}
 		}
@@ -241,14 +225,13 @@ func CheckTxWellFormed(tx *bc.Transaction) error {
 		assetID := out.AssetID()
 		sum, ok := checked.SubInt64(parity[assetID], int64(out.Amount()))
 		if !ok {
-			id := outRef.Hash()
+			id := bc.EntryID(out)
 			return badTxErrf(errOutputSumTooBig, "adding output %x (%d units of asset %x) overflows the allowed asset amount", id[:], out.Amount(), assetID[:])
 		}
 		parity[assetID] = sum
 	}
 
-	for _, retRef := range tx.Retirements {
-		ret := retRef.Entry.(*bc.Output)
+	for _, ret := range tx.Retirements {
 		if ret.Amount() == 0 {
 			return badTxErr(errEmptyOutput)
 		}
@@ -258,7 +241,7 @@ func CheckTxWellFormed(tx *bc.Transaction) error {
 		assetID := ret.AssetID()
 		sum, ok := checked.SubInt64(parity[assetID], int64(ret.Amount()))
 		if !ok {
-			id := retRef.Hash()
+			id := bc.EntryID(ret)
 			return badTxErrf(errOutputSumTooBig, "adding retirement %x (%d units of asset %x) overflows the allowed asset amount", id[:], ret.Amount(), assetID[:])
 		}
 		parity[assetID] = sum
@@ -271,11 +254,11 @@ func CheckTxWellFormed(tx *bc.Transaction) error {
 	}
 
 	// verifyFn returns a closure suitable for use in errgroup.Group.Go
-	verifyFn := func(e *bc.EntryRef) func() error {
+	verifyFn := func(entry bc.Entry) func() error {
 		return func() error {
-			err := vm.VerifyTxInput(tx, e)
+			id := bc.EntryID(entry)
+			err := vm.VerifyTxInput(tx, entry, id)
 			if err != nil {
-				id := e.Hash()
 				return badTxErrf(err, "validation failed in script execution, input %x", id[:])
 			}
 			return nil
@@ -283,11 +266,11 @@ func CheckTxWellFormed(tx *bc.Transaction) error {
 	}
 
 	var g errgroup.Group
-	for _, spRef := range tx.Spends {
-		g.Go(verifyFn(spRef))
+	for _, sp := range tx.Spends {
+		g.Go(verifyFn(sp))
 	}
-	for _, issRef := range tx.Issuances {
-		g.Go(verifyFn(issRef))
+	for _, iss := range tx.Issuances {
+		g.Go(verifyFn(iss))
 	}
 
 	return g.Wait()
@@ -299,14 +282,13 @@ func ApplyTx(snapshot *state.Snapshot, tx *bc.Transaction) error {
 		// xxx add issuance to the issuance memory
 	}
 
-	for _, spRef := range tx.Spends {
-		sp := spRef.Entry.(*bc.Spend)
+	for _, sp := range tx.Spends {
 		snapshot.Tree.Delete(sp.OutputID().Bytes())
 	}
 
-	for _, outRef := range tx.Outputs {
+	for _, out := range tx.Outputs {
 		// Insert new outputs into the state tree.
-		err := snapshot.Tree.Insert(outRef.Hash().Bytes())
+		err := snapshot.Tree.Insert(bc.EntryID(out).Bytes())
 		if err != nil {
 			return err
 		}

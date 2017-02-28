@@ -259,9 +259,8 @@ func (h *HSM) loadEd25519Key(ctx context.Context, pub ed25519.PublicKey) (prv ed
 	return prv, nil
 }
 
-// Sign looks up the prv given the pub and signs the given msg. The
-// EntryRef bh must point to a blockheader.
-func (h *HSM) Sign(ctx context.Context, pub ed25519.PublicKey, bh *bc.EntryRef) ([]byte, error) {
+// Sign looks up the prv given the pub and signs the given msg.
+func (h *HSM) Sign(ctx context.Context, pub ed25519.PublicKey, bh *bc.BlockHeader) ([]byte, error) {
 	prv, err := h.loadEd25519Key(ctx, pub)
 	if err != nil {
 		return nil, err
@@ -271,6 +270,6 @@ func (h *HSM) Sign(ctx context.Context, pub ed25519.PublicKey, bh *bc.EntryRef) 
 	if len(prv) != ed25519.PrivateKeySize {
 		return nil, ErrInvalidKeySize
 	}
-	msg := bh.Hash()
+	msg := bc.EntryID(bh)
 	return ed25519.Sign(prv, msg[:]), nil
 }

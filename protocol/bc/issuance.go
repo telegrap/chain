@@ -2,7 +2,7 @@ package bc
 
 type Issuance struct {
 	body struct {
-		Anchor  *EntryRef
+		Anchor  Hash
 		Value   AssetAmount
 		Data    Hash
 		ExtHash Hash
@@ -14,6 +14,9 @@ type Issuance struct {
 		IssuanceProgram     Program
 		Arguments           [][]byte
 	}
+	Anchor      Entry
+	Source      Entry
+	Destination Entry
 }
 
 const typeIssuance = "issuance1"
@@ -30,16 +33,8 @@ func (iss *Issuance) Amount() uint64 {
 	return iss.body.Value.Amount
 }
 
-func (iss *Issuance) Anchor() *EntryRef {
-	return iss.body.Anchor
-}
-
 func (iss *Issuance) Data() Hash {
 	return iss.body.Data
-}
-
-func (iss *Issuance) Destination() ValueDestination {
-	return iss.witness.Destination
 }
 
 func (iss *Issuance) InitialBlockID() Hash {
@@ -62,9 +57,13 @@ func (iss *Issuance) SetArguments(args [][]byte) {
 	iss.witness.Arguments = args
 }
 
-func newIssuance(anchor *EntryRef, value AssetAmount, data Hash) *Issuance {
+func newIssuance(anchor Entry, value AssetAmount, data Hash) *Issuance {
 	iss := new(Issuance)
-	iss.body.Anchor = anchor
+	if anchor != nil {
+		id := EntryID(anchor)
+		iss.body.Anchor = id
+		iss.Anchor = anchor
+	}
 	iss.body.Value = value
 	iss.body.Data = data
 	return iss

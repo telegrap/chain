@@ -10,83 +10,61 @@ import (
 	"chain/errors"
 )
 
-type (
-	Entry interface {
-		Type() string
-		Body() interface{}
-		Witness() interface{}
-	}
-
-	// EntryRef holds one or both of an entry and its id. If the entry
-	// is present and the id is not, the id can be generated (and then
-	// cached) on demand. Both may also be nil to represent a nil entry
-	// pointer.
-	EntryRef struct {
-		Entry
-		ID *Hash
-	}
-)
-
-// Hash returns the EntryRef's cached entry ID, computing it first if
-// necessary. Satisfies the hasher interface.
-func (r *EntryRef) Hash() Hash {
-	// xxx do we need to protect against concurrent calls to Hash()?
-	if r.ID == nil {
-		h := entryID(r.Entry)
-		r.ID = &h
-	}
-	return *r.ID
+type Entry interface {
+	Type() string
+	Body() interface{}
+	Witness() interface{}
 }
 
-func (ref *EntryRef) writeEntry(w io.Writer) error {
-	_, err := blockchain.WriteVarstr31(w, []byte(ref.Type()))
+func writeEntry(w io.Writer, e Entry) error {
+	_, err := blockchain.WriteVarstr31(w, []byte(e.Type()))
 	if err != nil {
 		return err
 	}
-	err = serialize(w, ref.Body())
+	err = serialize(w, e.Body())
 	if err != nil {
 		return err
 	}
-	return serialize(w, ref.Witness())
+	return serialize(w, e.Witness())
 }
 
-func (ref *EntryRef) readEntry(r io.Reader) error {
+func readEntry(r io.Reader, e *Entry) error {
 	typ, _, err := blockchain.ReadVarstr31(r)
 	if err != nil {
 		return err
 	}
 	switch string(typ) {
 	case typeHeader:
-		ref.Entry = new(Header)
+		*e = new(Header)
 	case typeIssuance:
-		ref.Entry = new(Issuance)
+		*e = new(Issuance)
 	case typeMux:
-		ref.Entry = new(Mux)
+		*e = new(Mux)
 	case typeNonce:
-		ref.Entry = new(Nonce)
+		*e = new(Nonce)
 	case typeOutput:
-		ref.Entry = new(Output)
+		*e = new(Output)
 	case typeRetirement:
-		ref.Entry = new(Retirement)
+		*e = new(Retirement)
 	case typeSpend:
-		ref.Entry = new(Spend)
+		*e = new(Spend)
 	case typeTimeRange:
-		ref.Entry = new(TimeRange)
+		*e = new(TimeRange)
 	default:
 		return fmt.Errorf("unknown type %s", typ)
 	}
-	body := ref.Entry.Body()
+	body := (*e).Body()
 	err = deserialize(r, body)
 	if err != nil {
 		return err
 	}
-	witness := ref.Entry.Witness()
+	witness := (*e).Witness()
 	return deserialize(r, witness)
 }
 
 var errInvalidValue = errors.New("invalid value")
 
-func entryID(e Entry) Hash {
+func EntryID(e Entry) Hash {
 	h := sha3pool.Get256()
 	defer sha3pool.Put256(h)
 
@@ -136,10 +114,6 @@ func serialize(w io.Writer, c interface{}) (err error) {
 	case string:
 		_, err = blockchain.WriteVarstr31(w, []byte(v))
 		return errors.Wrapf(err, "writing string (len %d)", len(v))
-	case EntryRef:
-		h := v.Hash()
-		_, err = w.Write(h[:])
-		return errors.Wrap(err, "writing entryref hash")
 	}
 
 	// The two container types in the spec (List and Struct)
@@ -237,14 +211,6 @@ func deserialize(r io.Reader, c interface{}) (err error) {
 			return errors.Wrap(err, "reading string")
 		}
 		*v = string(b)
-		return nil
-	case *EntryRef:
-		var h Hash
-		_, err = r.Read(h[:])
-		if err != nil {
-			return errors.Wrap(err, "reading hash for entryref")
-		}
-		v.ID = &h
 		return nil
 	}
 

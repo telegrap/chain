@@ -50,20 +50,20 @@ func (a *issueAction) Build(ctx context.Context, builder *txbuilder.TemplateBuil
 		return err
 	}
 
-	var nonce [8]byte
-	_, err = rand.Read(nonce[:])
+	var nonceData [8]byte
+	_, err = rand.Read(nonceData[:])
 	if err != nil {
 		return err
 	}
 	progBuilder := vmutil.NewBuilder()
-	progBuilder.AddData(nonce[:]).AddOp(vm.OP_TRUE)
+	progBuilder.AddData(nonceData[:]).AddOp(vm.OP_TRUE)
 
 	now := time.Now()
 	builder.RestrictMinTime(time.Now())
 
 	maxTimeMS := bc.Millis(now.Add(time.Minute)) // xxx placeholder
-	trRef := &bc.EntryRef{Entry: bc.NewTimeRange(bc.Millis(now), maxTimeMS)}
-	nonceRef := &bc.EntryRef{Entry: bc.NewNonce(bc.Program{VMVersion: 1, Code: progBuilder.Program}, trRef)}
+	tr := bc.NewTimeRange(bc.Millis(now), maxTimeMS)
+	nonce := bc.NewNonce(bc.Program{VMVersion: 1, Code: progBuilder.Program}, tr)
 
 	tplIn := &txbuilder.SigningInstruction{AssetAmount: a.AssetAmount}
 	path := signers.Path(asset.Signer, signers.AssetKeySpace)
@@ -76,5 +76,5 @@ func (a *issueAction) Build(ctx context.Context, builder *txbuilder.TemplateBuil
 		// xxx register data/hash mapping with builder
 	}
 
-	return builder.AddIssuance(nonceRef, a.AssetAmount, refdataHash, tplIn)
+	return builder.AddIssuance(nonce, a.AssetAmount, refdataHash, tplIn)
 }

@@ -27,14 +27,13 @@ type TemplateBuilder struct {
 	isLocal             bool
 }
 
-func (b *TemplateBuilder) AddFullSpend(spentRef *bc.EntryRef, data bc.Hash, sigInstruction *SigningInstruction) error {
-	spent := spentRef.Entry.(*bc.Output)
+func (b *TemplateBuilder) AddFullSpend(spent *bc.Output, data bc.Hash, sigInstruction *SigningInstruction) error {
 	value := spent.AssetAmount()
 	if value.Amount > math.MaxInt64 {
 		return errors.WithDetailf(ErrBadAmount, "amount %d exceeds maximum value 2^63", value.Amount)
 	}
-	spRef := b.bcBuilder.AddFullSpend(spentRef, data)
-	b.signingInstructions[spRef.Hash()] = sigInstruction
+	sp := b.bcBuilder.AddFullSpend(spent, data)
+	b.signingInstructions[bc.EntryID(sp)] = sigInstruction
 	return nil
 }
 
@@ -42,17 +41,17 @@ func (b *TemplateBuilder) AddPrevoutSpend(outputID bc.Hash, prevout *bc.Prevout,
 	if prevout.Amount > math.MaxInt64 {
 		return errors.WithDetailf(ErrBadAmount, "amount %d exceeds maximum value 2^63", prevout.Amount)
 	}
-	spRef := b.bcBuilder.AddPrevoutSpend(outputID, prevout, data)
-	b.signingInstructions[spRef.Hash()] = sigInstruction
+	sp := b.bcBuilder.AddPrevoutSpend(outputID, prevout, data)
+	b.signingInstructions[bc.EntryID(sp)] = sigInstruction
 	return nil
 }
 
-func (b *TemplateBuilder) AddIssuance(nonce *bc.EntryRef, value bc.AssetAmount, data bc.Hash, sigInstruction *SigningInstruction) error {
+func (b *TemplateBuilder) AddIssuance(nonce bc.Entry, value bc.AssetAmount, data bc.Hash, sigInstruction *SigningInstruction) error {
 	if value.Amount > math.MaxInt64 {
 		return errors.WithDetailf(ErrBadAmount, "amount %d exceeds maximum value 2^63", value.Amount)
 	}
-	issRef := b.bcBuilder.AddIssuance(nonce, value, data)
-	b.signingInstructions[issRef.Hash()] = sigInstruction
+	iss := b.bcBuilder.AddIssuance(nonce, value, data)
+	b.signingInstructions[bc.EntryID(iss)] = sigInstruction
 	return nil
 }
 

@@ -22,6 +22,7 @@ type BlockHeader struct {
 	witness struct {
 		Arguments [][]byte
 	}
+	PreviousBlock *BlockHeader
 }
 
 func (BlockHeader) Type() string             { return "blockheader" }

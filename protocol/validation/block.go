@@ -33,7 +33,7 @@ var (
 // then calls ValidateBlock.
 func ValidateBlockForAccept(ctx context.Context, snapshot *state.Snapshot, initialBlockHash bc.Hash, prevBlock, block *bc.Block, validateTx func(*bc.Transaction) error) error {
 	if prevBlock != nil {
-		err := vm.VerifyBlockHeader(prevBlock.Header.Entry.(*bc.BlockHeader), block)
+		err := vm.VerifyBlockHeader(prevBlock.Header, block)
 		if err != nil {
 			pkScriptStr, _ := vm.Disassemble(prevBlock.NextConsensusProgram())
 			witnessStrs := make([]string, 0, len(block.Arguments()))
@@ -59,11 +59,11 @@ func ValidateBlock(ctx context.Context, snapshot *state.Snapshot, initialBlockHa
 	// Do all of the unparallelizable work, plus validating the block
 	// header in one goroutine.
 	g.Go(func() error {
-		var prevBlockHeaderRef *bc.EntryRef
+		var prevBlockHeader *bc.BlockHeader
 		if prevBlock != nil {
-			prevBlockHeaderRef = prevBlock.Header
+			prevBlockHeader = prevBlock.Header
 		}
-		err := validateBlockHeader(prevBlockHeaderRef, block)
+		err := validateBlockHeader(prevBlockHeader, block)
 		if err != nil {
 			return err
 		}
@@ -120,20 +120,19 @@ func ApplyBlock(snapshot *state.Snapshot, block *bc.Block) error {
 	return nil
 }
 
-func validateBlockHeader(prevRef *bc.EntryRef, block *bc.Block) error {
-	if prevRef.Entry == nil {
+func validateBlockHeader(prevHeader *bc.BlockHeader, block *bc.Block) error {
+	if prevHeader == nil {
 		if block.Height() != 1 {
 			return ErrBadHeight
 		}
 	} else {
-		if block.PreviousBlockID() != prevRef.Hash() {
+		if block.PreviousBlockID() != bc.EntryID(prevHeader) {
 			return ErrBadPrevHash
 		}
-		prev := prevRef.Entry.(*bc.BlockHeader)
-		if block.Height() != prev.Height()+1 {
+		if block.Height() != prevHeader.Height()+1 {
 			return ErrBadHeight
 		}
-		if block.TimestampMS() < prev.TimestampMS() {
+		if block.TimestampMS() < prevHeader.TimestampMS() {
 			return ErrBadTimestamp
 		}
 	}

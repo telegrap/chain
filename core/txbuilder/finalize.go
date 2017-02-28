@@ -97,18 +97,16 @@ func checkTxSighashCommitment(tx *bc.Transaction) error {
 		return nil
 	}
 
-	for _, spRef := range tx.Spends {
-		sp := spRef.Entry.(*bc.Spend)
-		err := check(sp.Arguments(), spRef.Hash())
+	for _, sp := range tx.Spends {
+		err := check(sp.Arguments(), bc.EntryID(sp))
 		if err == nil {
 			return nil
 		}
 		lastError = err
 	}
 
-	for _, issRef := range tx.Issuances {
-		iss := issRef.Entry.(*bc.Spend)
-		err := check(iss.Arguments(), issRef.Hash())
+	for _, iss := range tx.Issuances {
+		err := check(iss.Arguments(), bc.EntryID(iss))
 		if err == nil {
 			return nil
 		}

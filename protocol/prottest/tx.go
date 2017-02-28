@@ -47,21 +47,20 @@ func NewIssuanceTx(tb testing.TB, c *protocol.Chain) *bc.Transaction {
 	issuanceProgram := builder.Program
 
 	// Create a transaction issuing this new asset.
-	var nonce [32]byte
-	_, err = rand.Read(nonce[:])
+	var nonceData [32]byte
+	_, err = rand.Read(nonceData[:])
 	if err != nil {
 		testutil.FatalErr(tb, err)
 	}
 	builder = vmutil.NewBuilder()
-	builder.AddData(nonce[:])
+	builder.AddData(nonceData[:])
 	builder.AddOp(vm.OP_TRUE)
 	nonceProg := builder.Program
 
 	minTimeMS := bc.Millis(time.Now().Add(-5 * time.Minute))
 	maxTimeMS := bc.Millis(time.Now().Add(5 * time.Minute))
-	trRef := &bc.EntryRef{Entry: bc.NewTimeRange(minTimeMS, maxTimeMS)}
-
-	nonceRef := &bc.EntryRef{Entry: bc.NewNonce(bc.Program{VMVersion: 1, Code: nonceProg}, trRef)}
+	tr := bc.NewTimeRange(minTimeMS, maxTimeMS)
+	nonce := bc.NewNonce(bc.Program{VMVersion: 1, Code: nonceProg}, tr)
 
 	assetdef := []byte(`{"type": "prottest issuance"}`)
 	var assetDefHash bc.Hash
@@ -71,13 +70,13 @@ func NewIssuanceTx(tb testing.TB, c *protocol.Chain) *bc.Transaction {
 	assetAmount := bc.AssetAmount{AssetID: assetID, Amount: 100}
 
 	bcBuilder := bc.NewBuilder(1, minTimeMS, maxTimeMS, nil)
-	issRef := bcBuilder.AddIssuance(nonceRef, assetAmount, bc.Hash{})
+	iss := bcBuilder.AddIssuance(nonce, assetAmount, bc.Hash{})
 	bcBuilder.AddOutput(assetAmount, bc.Program{VMVersion: 1, Code: []byte{0xbe, 0xef}}, bc.Hash{})
 	tx := bcBuilder.Build()
 
 	// Sign with a simple TXSIGHASH signature.
 	builder = vmutil.NewBuilder()
-	h := tx.SigHash(issRef.Hash())
+	h := tx.SigHash(bc.EntryID(iss))
 	builder.AddData(h[:])
 	builder.AddOp(vm.OP_TXSIGHASH).AddOp(vm.OP_EQUAL)
 	sigprog := builder.Program
@@ -88,7 +87,6 @@ func NewIssuanceTx(tb testing.TB, c *protocol.Chain) *bc.Transaction {
 	witness = append(witness, vm.Int64Bytes(0)) // 0 args to the sigprog
 	witness = append(witness, signature)
 	witness = append(witness, sigprog)
-	iss := issRef.Entry.(*bc.Issuance)
 	iss.SetArguments(witness)
 
 	return tx

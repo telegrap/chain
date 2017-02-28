@@ -8,34 +8,33 @@ import (
 )
 
 type Transaction struct {
-	Header      *EntryRef
-	Issuances   []*EntryRef
-	Spends      []*EntryRef
-	Outputs     []*EntryRef
-	Retirements []*EntryRef
+	Header      *Header
+	Issuances   []*Issuance
+	Spends      []*Spend
+	Outputs     []*Output
+	Retirements []*Retirement
 }
 
-func NewTransaction(hdrRef *EntryRef) *Transaction {
-	hdr := hdrRef.Entry.(*Header)
+func NewTransaction(hdr *Header) *Transaction {
 	spends, issuances := hdr.Inputs()
 	tx := &Transaction{
-		Header:    hdrRef,
+		Header:    hdr,
 		Issuances: issuances,
 		Spends:    spends,
 	}
-	for _, r := range hdr.Results() {
-		switch r.Entry.(type) {
+	for _, r := range hdr.Results {
+		switch r2 := r.(type) {
 		case *Output:
-			tx.Outputs = append(tx.Outputs, r)
+			tx.Outputs = append(tx.Outputs, r2)
 		case *Retirement:
-			tx.Retirements = append(tx.Retirements, r)
+			tx.Retirements = append(tx.Retirements, r2)
 		}
 	}
 	return tx
 }
 
 func (tx *Transaction) ID() Hash {
-	return tx.Header.Hash()
+	return EntryID(tx.Header)
 }
 
 func (tx *Transaction) SigHash(inpHash Hash) (hash Hash) {
@@ -50,43 +49,42 @@ func (tx *Transaction) SigHash(inpHash Hash) (hash Hash) {
 }
 
 func (tx *Transaction) Data() Hash {
-	return tx.Header.Entry.(*Header).Data()
+	return tx.Header.Data()
 }
 
-func (tx *Transaction) Results() []*EntryRef {
-	return tx.Header.Entry.(*Header).Results()
+func (tx *Transaction) Results() []Entry {
+	return tx.Header.Results
 }
 
 func (tx *Transaction) Version() uint64 {
-	return tx.Header.Entry.(*Header).Version()
+	return tx.Header.Version()
 }
 
 func (tx *Transaction) MinTimeMS() uint64 {
-	return tx.Header.Entry.(*Header).MinTimeMS()
+	return tx.Header.MinTimeMS()
 }
 
 func (tx *Transaction) MaxTimeMS() uint64 {
-	return tx.Header.Entry.(*Header).MaxTimeMS()
+	return tx.Header.MaxTimeMS()
 }
 
 // writeTx writes the Header to w, followed by a varint31 count of
 // entries, followed by all the entries reachable from the Header.
 func (tx *Transaction) writeTo(w io.Writer) error {
-	var entries []*EntryRef
-	h := tx.Header.Entry.(*Header)
-	h.Walk(func(e *EntryRef) error {
-		if e.Entry != h {
-			entries = append(entries, e)
+	var entries []Entry
+	tx.Header.Walk(func(_ Hash, entry Entry) error {
+		if entry != tx.Header {
+			entries = append(entries, entry)
 		}
 		return nil
 	})
-	err := serializeEntry(w, h)
+	err := serializeEntry(w, tx.Header)
 	if err != nil {
 		return err
 	}
 	_, err = blockchain.WriteVarint31(w, uint64(len(entries)))
 	for _, e := range entries {
-		err = e.writeEntry(w)
+		err = writeEntry(w, e)
 		if err != nil {
 			return err
 		}
@@ -107,22 +105,22 @@ func (tx *Transaction) readFrom(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	entries := make(map[Hash]*EntryRef, n)
+	entries := make(map[Hash]Entry, n)
 	for i := uint32(0); i < n; i++ {
-		var ref EntryRef
-		err = ref.readEntry(r)
+		var e Entry
+		err = readEntry(r, &e)
 		if err != nil {
 			return err
 		}
-		entries[ref.Hash()] = &ref
+		entries[EntryID(e)] = e
 	}
-	return h.Walk(func(e *EntryRef) error {
-		if other, ok := entries[e.Hash()]; ok {
-			e.Entry = other.Entry
+	return h.Walk(func(id Hash, entry Entry) error {
+		if _, ok := entries[id]; ok {
+			// xxx
 		}
 		return nil
 	})
-	newTx := NewTransaction(&EntryRef{Entry: &h})
+	newTx := NewTransaction(&h)
 	*tx = *newTx
 	return nil
 }

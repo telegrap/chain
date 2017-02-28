@@ -139,7 +139,7 @@ func opTxSigHash(vm *virtualMachine) error {
 	hasher := sha3pool.Get256()
 	defer sha3pool.Put256(hasher)
 
-	h := vm.tx.SigHash(vm.input.Hash())
+	h := vm.tx.SigHash(vm.inputHash)
 	return vm.push(h[:], false)
 }
 

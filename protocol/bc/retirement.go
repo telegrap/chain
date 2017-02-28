@@ -6,6 +6,7 @@ type Retirement struct {
 		Data    Hash
 		ExtHash Hash
 	}
+	Source Entry
 }
 
 const typeRetirement = "retirement1"

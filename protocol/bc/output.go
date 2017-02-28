@@ -7,6 +7,7 @@ type Output struct {
 		Data           Hash
 		ExtHash        Hash
 	}
+	Source Entry
 }
 
 const typeOutput = "output1"

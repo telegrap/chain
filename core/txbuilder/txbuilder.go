@@ -78,11 +78,11 @@ func KeyIDs(xpubs []chainkd.XPub, path [][]byte) []KeyID {
 }
 
 func Sign(ctx context.Context, tpl *Template, xpubs []chainkd.XPub, signFn SignFunc) error {
-	signComponents := func(inpRef *bc.EntryRef) error {
-		hash := inpRef.Hash()
+	signComponents := func(inp bc.Entry) error {
+		hash := bc.EntryID(inp)
 		if sigInst, ok := tpl.SigningInstructions[hash]; ok {
 			for j, c := range sigInst.WitnessComponents {
-				err := c.Sign(ctx, tpl, inpRef, xpubs, signFn)
+				err := c.Sign(ctx, tpl, inp, xpubs, signFn)
 				if err != nil {
 					return errors.WithDetailf(err, "adding signature(s) to witness component %d of input %x", j, hash[:])
 				}
@@ -90,14 +90,14 @@ func Sign(ctx context.Context, tpl *Template, xpubs []chainkd.XPub, signFn SignF
 		}
 		return nil
 	}
-	for _, issRef := range tpl.Transaction.Issuances {
-		err := signComponents(issRef)
+	for _, iss := range tpl.Transaction.Issuances {
+		err := signComponents(iss)
 		if err != nil {
 			return err
 		}
 	}
-	for _, spRef := range tpl.Transaction.Spends {
-		err := signComponents(spRef)
+	for _, sp := range tpl.Transaction.Spends {
+		err := signComponents(sp)
 		if err != nil {
 			return err
 		}
@@ -108,16 +108,14 @@ func Sign(ctx context.Context, tpl *Template, xpubs []chainkd.XPub, signFn SignF
 func checkBlankCheck(tx *bc.Transaction) error {
 	assetMap := make(map[bc.AssetID]int64)
 	var ok bool
-	for _, issRef := range tx.Issuances {
-		iss := issRef.Entry.(*bc.Issuance)
+	for _, iss := range tx.Issuances {
 		assetID := iss.AssetID()
 		assetMap[assetID], ok = checked.AddInt64(assetMap[assetID], int64(iss.Amount()))
 		if !ok {
 			return errors.WithDetailf(ErrBadAmount, "cumulative amounts for asset %s overflow the allowed asset amount 2^63", assetID)
 		}
 	}
-	for _, spRef := range tx.Spends {
-		sp := spRef.Entry.(*bc.Spend)
+	for _, sp := range tx.Spends {
 		assetAmount := sp.AssetAmount()
 		assetID := assetAmount.AssetID
 		assetMap[assetID], ok = checked.AddInt64(assetMap[assetID], int64(assetAmount.Amount))
@@ -125,16 +123,14 @@ func checkBlankCheck(tx *bc.Transaction) error {
 			return errors.WithDetailf(ErrBadAmount, "cumulative amounts for asset %s overflow the allowed asset amount 2^63", assetID)
 		}
 	}
-	for _, outRef := range tx.Outputs {
-		out := outRef.Entry.(*bc.Output)
+	for _, out := range tx.Outputs {
 		assetID := out.AssetID()
 		assetMap[assetID], ok = checked.SubInt64(assetMap[assetID], int64(out.Amount()))
 		if !ok {
 			return errors.WithDetailf(ErrBadAmount, "cumulative amounts for asset %s overflow the allowed asset amount 2^63", assetID)
 		}
 	}
-	for _, retRef := range tx.Retirements {
-		ret := retRef.Entry.(*bc.Retirement)
+	for _, ret := range tx.Retirements {
 		assetID := ret.AssetID()
 		assetMap[assetID], ok = checked.SubInt64(assetMap[assetID], int64(ret.Amount()))
 		if !ok {

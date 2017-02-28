@@ -26,7 +26,7 @@ var ErrInvalidKey = errors.New("misconfigured signer public key")
 // Signer provides the interface for computing the block signature. It's
 // implemented by the MockHSM and our signerd client.
 type Signer interface {
-	Sign(ctx context.Context, pubkey ed25519.PublicKey, blockHeader *bc.EntryRef) ([]byte, error)
+	Sign(ctx context.Context, pubkey ed25519.PublicKey, bh *bc.BlockHeader) ([]byte, error)
 }
 
 // BlockSigner validates and signs blocks.

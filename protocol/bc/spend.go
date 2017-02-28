@@ -13,7 +13,7 @@ type Prevout struct {
 
 type Spend struct {
 	body struct {
-		SpentOutput *EntryRef
+		SpentOutput Hash
 		Data        Hash
 		ExtHash     Hash
 	}
@@ -21,7 +21,9 @@ type Spend struct {
 		Destination ValueDestination
 		Arguments   [][]byte
 	}
-	prevout *Prevout
+	prevout     *Prevout
+	SpentOutput *Output
+	Destination Entry
 }
 
 const typeSpend = "spend1"
@@ -34,10 +36,6 @@ func (s *Spend) Data() Hash {
 	return s.body.Data
 }
 
-func (s *Spend) Destination() ValueDestination {
-	return s.witness.Destination
-}
-
 func (s *Spend) Arguments() [][]byte {
 	return s.witness.Arguments
 }
@@ -47,33 +45,35 @@ func (s *Spend) SetArguments(args [][]byte) {
 }
 
 func (s *Spend) OutputID() Hash {
-	return s.body.SpentOutput.Hash()
+	return s.body.SpentOutput
 }
 
 func (s *Spend) AssetAmount() AssetAmount {
-	if s.prevout != nil {
-		return s.prevout.AssetAmount
+	if s.SpentOutput != nil {
+		return s.SpentOutput.AssetAmount()
 	}
-	return s.body.SpentOutput.Entry.(*Output).AssetAmount()
+	return s.prevout.AssetAmount
 }
 
 func (s *Spend) ControlProgram() Program {
-	if s.prevout != nil {
-		return s.prevout.Program
+	if s.SpentOutput != nil {
+		return s.SpentOutput.ControlProgram()
 	}
-	return s.body.SpentOutput.Entry.(*Output).ControlProgram()
+	return s.prevout.Program
 }
 
-func NewFullSpend(spentOutput *EntryRef, data Hash) *Spend {
+func NewFullSpend(spentOutput *Output, data Hash) *Spend {
 	s := new(Spend)
-	s.body.SpentOutput = spentOutput
+	oID := EntryID(spentOutput)
+	s.body.SpentOutput = oID
+	s.SpentOutput = spentOutput
 	s.body.Data = data
 	return s
 }
 
 func NewPrevoutSpend(outputID Hash, prevout *Prevout, data Hash) *Spend {
 	s := new(Spend)
-	s.body.SpentOutput = &EntryRef{ID: &outputID}
+	s.body.SpentOutput = outputID
 	s.body.Data = data
 	s.prevout = prevout
 	return s

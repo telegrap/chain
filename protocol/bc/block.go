@@ -14,7 +14,7 @@ import (
 // Block describes a complete block, including its header
 // and the transactions it contains.
 type Block struct {
-	Header       *EntryRef
+	Header       *BlockHeader
 	Transactions []*Transaction
 }
 
@@ -70,7 +70,7 @@ func (b *Block) readFrom(r io.Reader) error {
 	if err != nil {
 		return errors.Wrap(err, "reading block header")
 	}
-	b.Header = &EntryRef{Entry: bh}
+	b.Header = bh
 	n, _, err := blockchain.ReadVarint31(r)
 	if err != nil {
 		return errors.Wrap(err, "reading number of transactions")
@@ -94,7 +94,7 @@ func (b *Block) WriteTo(w io.Writer) (int64, error) {
 
 func (b *Block) writeTo(w io.Writer) error {
 	// xxx do we still need serflags?
-	err := serializeEntry(w, b.Header.Entry.(*BlockHeader))
+	err := serializeEntry(w, b.Header)
 	if err != nil {
 		return errors.Wrap(err, "writing blockheader")
 	}
@@ -112,41 +112,41 @@ func (b *Block) writeTo(w io.Writer) error {
 }
 
 func (b *Block) Hash() Hash {
-	return b.Header.Hash()
+	return EntryID(b.Header)
 }
 
 func (b *Block) Version() uint64 {
-	return b.Header.Entry.(*BlockHeader).Version()
+	return b.Header.Version()
 }
 
 func (b *Block) PreviousBlockID() Hash {
-	return b.Header.Entry.(*BlockHeader).PreviousBlockID()
+	return b.Header.PreviousBlockID()
 }
 
 func (b *Block) TimestampMS() uint64 {
-	return b.Header.Entry.(*BlockHeader).TimestampMS()
+	return b.Header.TimestampMS()
 }
 
 func (b *Block) TransactionsRoot() Hash {
-	return b.Header.Entry.(*BlockHeader).TransactionsRoot()
+	return b.Header.TransactionsRoot()
 }
 
 func (b *Block) AssetsRoot() Hash {
-	return b.Header.Entry.(*BlockHeader).AssetsRoot()
+	return b.Header.AssetsRoot()
 }
 
 func (b *Block) NextConsensusProgram() []byte {
-	return b.Header.Entry.(*BlockHeader).NextConsensusProgram()
+	return b.Header.NextConsensusProgram()
 }
 
 func (b *Block) Height() uint64 {
-	return b.Header.Entry.(*BlockHeader).Height()
+	return b.Header.Height()
 }
 
 func (b *Block) Arguments() [][]byte {
-	return b.Header.Entry.(*BlockHeader).Arguments()
+	return b.Header.Arguments()
 }
 
 func (b *Block) SetArguments(args [][]byte) {
-	b.Header.Entry.(*BlockHeader).SetArguments(args)
+	b.Header.SetArguments(args)
 }

@@ -9,6 +9,8 @@ type Mux struct {
 	witness struct {
 		Destinations []ValueDestination
 	}
+	Sources      []Entry
+	Destinations []Entry
 }
 
 const typeMux = "mux1"
@@ -16,10 +18,6 @@ const typeMux = "mux1"
 func (Mux) Type() string            { return typeMux }
 func (m *Mux) Body() interface{}    { return &m.body }
 func (m *Mux) Witness() interface{} { return &m.witness }
-
-func (m *Mux) Destinations() []ValueDestination {
-	return m.witness.Destinations
-}
 
 func newMux(sources []ValueSource, program Program) *Mux {
 	m := new(Mux)

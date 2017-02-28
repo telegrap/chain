@@ -148,13 +148,14 @@ func buildAnnotatedTransaction(orig *bc.Transaction, b *bc.Block, indexInBlock u
 		tx.Inputs = append(tx.Inputs, buildAnnotatedIssuance(in))
 	}
 
-	for i, resultRef := range orig.Results() {
+	for i, result := range orig.Results() {
+		// xxx Instead of computing it below, we can get bc.EntryID(res) from orig.Header.body.Results
 		var aout *AnnotatedOutput
-		switch res := resultRef.Entry.(type) {
+		switch res := result.(type) {
 		case *bc.Output:
-			aout = buildAnnotatedOutput(res, resultRef.Hash(), uint32(i))
+			aout = buildAnnotatedOutput(res, bc.EntryID(res), uint32(i))
 		case *bc.Retirement:
-			aout = buildAnnotatedRetirement(res, resultRef.Hash(), uint32(i))
+			aout = buildAnnotatedRetirement(res, bc.EntryID(res), uint32(i))
 		}
 		tx.Outputs = append(tx.Outputs, aout)
 	}
@@ -162,8 +163,7 @@ func buildAnnotatedTransaction(orig *bc.Transaction, b *bc.Block, indexInBlock u
 	return tx
 }
 
-func buildAnnotatedSpend(orig *bc.EntryRef) *AnnotatedInput {
-	sp := orig.Entry.(*bc.Spend)
+func buildAnnotatedSpend(sp *bc.Spend) *AnnotatedInput {
 	prevoutID := sp.OutputID()
 	assetAmount := sp.AssetAmount()
 	in := &AnnotatedInput{
@@ -187,8 +187,7 @@ func buildAnnotatedSpend(orig *bc.EntryRef) *AnnotatedInput {
 	return in
 }
 
-func buildAnnotatedIssuance(orig *bc.EntryRef) *AnnotatedInput {
-	iss := orig.Entry.(*bc.Issuance)
+func buildAnnotatedIssuance(iss *bc.Issuance) *AnnotatedInput {
 	in := &AnnotatedInput{
 		Type:            "issue",
 		AssetID:         iss.AssetID(),

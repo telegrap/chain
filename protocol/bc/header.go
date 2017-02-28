@@ -3,11 +3,12 @@ package bc
 type Header struct {
 	body struct {
 		Version              uint64
-		Results              []*EntryRef
+		Results              []Hash
 		Data                 Hash
 		MinTimeMS, MaxTimeMS uint64
 		ExtHash              Hash
 	}
+	Results []Entry
 }
 
 const typeHeader = "txheader"
@@ -28,70 +29,73 @@ func (h *Header) MaxTimeMS() uint64 {
 	return h.body.MaxTimeMS
 }
 
-func (h *Header) Results() []*EntryRef {
-	return h.body.Results
-}
-
 func (h *Header) Data() Hash {
 	return h.body.Data
 }
 
-func (h *Header) Walk(visitor func(*EntryRef) error) error {
+func (h *Header) Walk(visitor func(id Hash, entry Entry) error) error {
 	visited := make(map[Hash]bool)
-	visit := func(e *EntryRef) error {
-		if e == nil {
+	visit := func(id Hash, entry Entry) error {
+		if entry == nil {
 			return nil
 		}
-		h := e.Hash()
-		if visited[h] {
+		if visited[id] {
 			return nil
 		}
-		visited[h] = true
-		return visitor(e)
+		visited[id] = true
+		return visitor(id, entry)
 	}
-	for _, res := range h.body.Results {
-		err := visit(res)
+	for i, id := range h.body.Results {
+		var entry Entry
+		if i < len(h.Results) {
+			entry = h.Results[i]
+		}
+		err := visit(id, entry)
 		if err != nil {
 			return err
 		}
-		switch e2 := res.Entry.(type) {
+		switch e2 := entry.(type) {
 		case *Issuance:
-			err = visit(e2.body.Anchor)
+			err = visit(e2.body.Anchor, e2.Anchor)
 			if err != nil {
 				return err
 			}
-			err = visit(e2.witness.Destination.Ref)
+			err = visit(e2.witness.Destination.Ref, e2.Destination)
 			if err != nil {
 				return err
 			}
 		case *Mux:
-			for _, vs := range e2.body.Sources {
-				err = visit(vs.Ref)
+			for j, vs := range e2.body.Sources {
+				var s Entry
+				if j < len(e2.Sources) {
+					s = e2.Sources[j]
+				}
+				err = visit(vs.Ref, s)
 				if err != nil {
 					return err
 				}
 			}
 		case *Nonce:
-			err = visit(e2.body.TimeRange)
+			err = visit(e2.body.TimeRange, e2.TimeRange)
 			if err != nil {
 				return err
 			}
 		case *Output:
-			err = visit(e2.body.Source.Ref)
+			err = visit(e2.body.Source.Ref, e2.Source)
 			if err != nil {
 				return err
 			}
 		case *Retirement:
-			err = visit(e2.body.Source.Ref)
+			err = visit(e2.body.Source.Ref, e2.Source)
 			if err != nil {
 				return err
 			}
 		case *Spend:
-			err = visit(e2.body.SpentOutput)
+			err = visit(e2.body.SpentOutput, e2.SpentOutput)
 			if err != nil {
 				return err
 			}
-			err = visit(e2.witness.Destination.Ref)
+			err = visit(e2.witness.Destination.Ref, e2.Destination)
 			if err != nil {
 				return err
 			}
@@ -102,20 +106,20 @@ func (h *Header) Walk(visitor func(*EntryRef) error) error {
 
 // Inputs returns all input entries (as two lists: spends and
 // issuances) reachable from a header's result entries.
-func (h *Header) Inputs() (spends, issuances []*EntryRef) {
-	h.Walk(func(e *EntryRef) error {
-		switch e.Entry.(type) {
+func (h *Header) Inputs() (spends []*Spend, issuances []*Issuance) {
+	h.Walk(func(_ Hash, e Entry) error {
+		switch e2 := e.(type) {
 		case *Spend:
-			spends = append(spends, e)
+			spends = append(spends, e2)
 		case *Issuance:
-			issuances = append(issuances, e)
+			issuances = append(issuances, e2)
 		}
 		return nil
 	})
 	return
 }
 
-func newHeader(version uint64, results []*EntryRef, data Hash, minTimeMS, maxTimeMS uint64) *Header {
+func newHeader(version uint64, results []Hash, data Hash, minTimeMS, maxTimeMS uint64) *Header {
 	h := new(Header)
 	h.body.Version = version
 	h.body.Results = results
