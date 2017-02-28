@@ -20,7 +20,6 @@ type Spend struct {
 	witness struct {
 		Destination ValueDestination
 		Arguments   [][]byte
-		ExtHash     Hash
 	}
 	prevout *Prevout
 }

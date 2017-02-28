@@ -13,7 +13,6 @@ type Issuance struct {
 		AssetDefinitionHash Hash
 		IssuanceProgram     Program
 		Arguments           [][]byte
-		ExtHash             Hash
 	}
 }
 

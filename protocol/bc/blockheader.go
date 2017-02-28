@@ -21,7 +21,6 @@ type BlockHeader struct {
 	}
 	witness struct {
 		Arguments [][]byte
-		ExtHash   Hash
 	}
 }
 
