@@ -8,6 +8,7 @@ import (
 	"chain/math/checked"
 	"chain/protocol/bc"
 	"chain/protocol/state"
+	txpackage "chain/protocol/tx"
 	"chain/protocol/vm"
 	"chain/protocol/vmutil"
 )
@@ -39,6 +40,7 @@ var (
 	errOutputTooBig           = errors.New("output value exceeds maximum value of int64")
 	errOutputSumTooBig        = errors.New("sum of outputs overflows the allowed asset amount")
 	errUnbalancedV1           = errors.New("amounts for asset are not balanced on v1 inputs and outputs")
+	errInvalidSpend           = errors.New("invalid spend")
 )
 
 func badTxErr(err error) error {
@@ -196,6 +198,10 @@ func CheckTxWellFormed(tx *bc.Tx) error {
 			if tx.Version == 1 && x.VMVersion != 1 {
 				return badTxErrf(errVMVersion, "unknown vm version %d in input %d for transaction version %d", x.VMVersion, i, tx.Version)
 			}
+			computedSpentOutputID := txpackage.MapSpendToSpentOutputID(txin)
+			if computedSpentOutputID != x.SpentOutputID {
+				return badTxErr(errInvalidSpend)
+			}
 		}
 
 		buf := new(bytes.Buffer)
@@ -271,8 +277,7 @@ func ApplyTx(snapshot *state.Snapshot, tx *bc.Tx) error {
 		si := in.TypedInput.(*bc.SpendInput)
 
 		// Remove the consumed output from the state tree.
-		uid := si.SpentOutputID
-		snapshot.Tree.Delete(uid.Bytes())
+		snapshot.Tree.Delete(si.SpentOutputID[:])
 	}
 
 	for i, out := range tx.Outputs {

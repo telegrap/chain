@@ -147,7 +147,7 @@ func mapTx(tx *bc.TxData) (headerID bc.Hash, hdr *header, entryMap map[bc.Hash]e
 // Unlike mapTx, which simply copies the spentOutputID in the
 // bc.SpendInput to the new spend object, this one constitutes a
 // complete output object from the txin and computes its hash.
-func mapSpendToSpentOutputID(txin *bc.TxInput) bc.Hash {
+func MapSpendToSpentOutputID(txin *bc.TxInput) bc.Hash {
 	oldSpend := txin.TypedInput.(*bc.SpendInput)
 	prevoutCommitment := oldSpend.OutputCommitment
 	s := valueSource{
