@@ -24,12 +24,12 @@ func TxHashes(oldTx *bc.TxData) (hashes *bc.TxHashes, err error) {
 	}
 
 	hashes = new(bc.TxHashes)
-	hashes.ID = bc.Hash(txid)
+	hashes.ID = txid
 
 	// ResultHashes
 	hashes.ResultHashes = make([]bc.Hash, len(header.body.Results))
 	for i, resultHash := range header.body.Results {
-		hashes.ResultHashes[i] = bc.Hash(resultHash)
+		hashes.ResultHashes[i] = resultHash
 	}
 
 	hashes.VMContexts = make([]*bc.VMContext, len(oldTx.Inputs))
@@ -50,16 +50,16 @@ func TxHashes(oldTx *bc.TxData) (hashes *bc.TxHashes, err error) {
 			iss := struct {
 				ID           bc.Hash
 				ExpirationMS uint64
-			}{bc.Hash(entryID), tr.body.MaxTimeMS}
+			}{entryID, tr.body.MaxTimeMS}
 			hashes.Issuances = append(hashes.Issuances, iss)
 
 		case *issuance:
-			vmc := newVMContext(bc.Hash(entryID), hashes.ID, header.body.Data, ent.body.Data)
+			vmc := newVMContext(entryID, hashes.ID, header.body.Data, ent.body.Data)
 			vmc.NonceID = (*bc.Hash)(&ent.body.Anchor)
 			hashes.VMContexts[ent.Ordinal()] = vmc
 
 		case *spend:
-			vmc := newVMContext(bc.Hash(entryID), hashes.ID, header.body.Data, ent.body.Data)
+			vmc := newVMContext(entryID, hashes.ID, header.body.Data, ent.body.Data)
 			vmc.OutputID = (*bc.Hash)(&ent.body.SpentOutput)
 			hashes.VMContexts[ent.Ordinal()] = vmc
 		}
