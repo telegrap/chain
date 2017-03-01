@@ -26,11 +26,12 @@ func newMux(program program) *mux {
 }
 
 func (m *mux) addSource(e entry, value bc.AssetAmount, position uint64) {
+	w := newIDWrapper(e, nil)
 	src := valueSource{
-		Ref:      entryID(e),
+		Ref:      w.Hash,
 		Value:    value,
 		Position: position,
 	}
 	m.body.Sources = append(m.body.Sources, src)
-	m.Sources = append(m.Sources, e)
+	m.Sources = append(m.Sources, w)
 }

@@ -30,10 +30,11 @@ func newOutput(controlProgram program, data bc.Hash, ordinal int) *output {
 }
 
 func (o *output) setSource(e entry, value bc.AssetAmount, position uint64) {
+	w := newIDWrapper(e, nil)
 	o.body.Source = valueSource{
-		Ref:      entryID(e),
+		Ref:      w.Hash,
 		Value:    value,
 		Position: position,
 	}
-	o.Source = e
+	o.Source = w
 }

@@ -104,9 +104,6 @@ func mapTx(tx *bc.TxData) (headerID bc.Hash, hdr *header, entryMap map[bc.Hash]e
 
 	mux := newMux(program{VMVersion: 1, Code: []byte{byte(vm.OP_TRUE)}})
 	for _, src := range muxSources {
-		// TODO(bobg): addSource will recompute the hash of
-		// entryMap[src.Ref], which is already available as src.Ref - fix
-		// this (and a number of other such places)
 		mux.addSource(entryMap[src.Ref], src.Value, src.Position)
 	}
 	_, err = addEntry(mux)
@@ -122,23 +119,25 @@ func mapTx(tx *bc.TxData) (headerID bc.Hash, hdr *header, entryMap map[bc.Hash]e
 			// retirement
 			r := newRetirement(hashData(out.ReferenceData), i)
 			r.setSource(mux, out.AssetAmount, uint64(i))
-			_, err = addEntry(r)
+			var w *idWrapper
+			w, err = addEntry(r)
 			if err != nil {
 				err = errors.Wrapf(err, "adding retirement entry for output %d", i)
 				return
 			}
-			results = append(results, r)
+			results = append(results, w)
 		} else {
 			// non-retirement
 			prog := program{out.VMVersion, out.ControlProgram}
 			o := newOutput(prog, hashData(out.ReferenceData), i)
 			o.setSource(mux, out.AssetAmount, uint64(i))
-			_, err = addEntry(o)
+			var w *idWrapper
+			w, err = addEntry(o)
 			if err != nil {
 				err = errors.Wrapf(err, "adding output entry for output %d", i)
 				return
 			}
-			results = append(results, o)
+			results = append(results, w)
 		}
 	}
 

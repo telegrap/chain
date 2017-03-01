@@ -89,7 +89,7 @@ func TestCheckSig(t *testing.T) {
 func TestCryptoOps(t *testing.T) {
 	tx := bc.NewTx(bc.TxData{
 		Inputs:  []*bc.TxInput{bc.NewSpendInput(bc.Hash{}, nil, bc.AssetID{}, 5, nil, nil)},
-		Outputs: []*bc.TxOutput{},
+		Outputs: []*bc.TxOutput{bc.NewTxOutput(bc.AssetID{}, 5, nil, nil)},
 	})
 
 	type testStruct struct {
@@ -409,10 +409,10 @@ func TestCryptoOps(t *testing.T) {
 			tx:        tx,
 			txContext: txContext(&tx.TxData, 0),
 			dataStack: [][]byte{{
-				64, 51, 183, 15, 140, 134, 122, 204,
-				29, 162, 137, 33, 203, 185, 114, 69,
-				247, 54, 170, 195, 70, 255, 127, 51,
-				88, 80, 120, 226, 199, 219, 108, 22,
+				87, 245, 205, 230, 206, 221, 5, 145,
+				163, 244, 31, 100, 82, 68, 252, 105,
+				174, 236, 231, 58, 231, 53, 161, 126,
+				251, 191, 158, 51, 102, 227, 76, 60,
 			}},
 		},
 	}, {
