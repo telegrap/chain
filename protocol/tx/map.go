@@ -144,6 +144,22 @@ func mapTx(tx *bc.TxData) (headerID bc.Hash, hdr *header, entryMap map[bc.Hash]e
 	return headerID, h.(*header), entryMap, nil
 }
 
+// Unlike mapTx, which simply copies the spentOutputID in the
+// bc.SpendInput to the new spend object, this one constitutes a
+// complete output object from the txin and computes its hash.
+func mapSpendToSpentOutputID(txin *bc.TxInput) bc.Hash {
+	oldSpend := txin.TypedInput.(*bc.SpendInput)
+	prevoutCommitment := oldSpend.OutputCommitment
+	s := valueSource{
+		Ref:      outputCommitmentSourceID(prevoutCommitment),
+		Position: outputCommitmentSourcePos(prevoutCommitment),
+		Value:    prevoutCommitment.AssetAmount,
+	}
+	prog := program{VMVersion: prevoutCommitment.VMVersion, Code: prevoutCommitment.ControlProgram}
+	output := newOutput(s, prog, outputCommitmentRefdataHash(prevoutCommitment), 0)
+	return entryID(output)
+}
+
 func mapBlockHeader(old *bc.BlockHeader) (bhID bc.Hash, bh *blockHeader) {
 	bh = newBlockHeader(old.Version, old.Height, old.PreviousBlockHash, old.TimestampMS, old.TransactionsMerkleRoot, old.AssetsMerkleRoot, old.ConsensusProgram)
 	bhID = entryID(bh)
@@ -153,4 +169,16 @@ func mapBlockHeader(old *bc.BlockHeader) (bhID bc.Hash, bh *blockHeader) {
 func hashData(data []byte) (h bc.Hash) {
 	sha3pool.Sum256(h[:], data)
 	return
+}
+
+func outputCommitmentSourceID(oc bc.OutputCommitment) bc.Hash {
+	// xxxx
+}
+
+func outputCommitmentSourcePos(oc bc.OutputCommitment) uint64 {
+	// xxx
+}
+
+func outputCommitmentRefdataHash(oc bc.OutputCommitment) bc.Hash {
+	// xxx
 }
