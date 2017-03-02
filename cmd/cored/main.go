@@ -279,7 +279,7 @@ func launchConfiguredCore(ctx context.Context, raftDB *raft.Service, db *sql.DB,
 				chainlog.Fatal(ctx, chainlog.KeyError, err)
 			}
 		}
-		s := blocksigner.New(conf.BlockPub, hsm, db, c)
+		s := blocksigner.New(ed25519.PublicKey(conf.BlockPub), hsm, db, c)
 
 		generatorSigners = append(generatorSigners, s) // "local" signer
 		signBlockHandler = func(ctx context.Context, b *bc.Block) ([]byte, error) {

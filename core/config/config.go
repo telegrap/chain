@@ -99,7 +99,7 @@ func Configure(ctx context.Context, db pg.DB, rDB *raft.Service, c *Config) erro
 				return err
 			}
 		} else {
-			blockPub = c.BlockPub
+			blockPub = ed25519.PublicKey(c.BlockPub)
 		}
 		signingKeys = append(signingKeys, blockPub)
 	}

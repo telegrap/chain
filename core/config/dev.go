@@ -22,7 +22,7 @@ func getOrCreateDevKey(ctx context.Context, db pg.DB, c *Config) (blockPub ed255
 	} else {
 		log.Messagef(ctx, "Using block-signing key %x\n", corePub.Pub)
 	}
-	c.BlockPub = corePub.Pub
+	c.BlockPub = string(corePub.Pub)
 
 	return corePub.Pub, nil
 
