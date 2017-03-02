@@ -2,8 +2,6 @@
 // across a raft cluster.
 package raft
 
-// tktk need to vendor raft package before landing this
-
 import (
 	"bytes"
 	"context"
