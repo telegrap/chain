@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"bytes"
 	"math"
 	"testing"
 	"time"
@@ -1085,6 +1086,91 @@ func TestConfirmTx(t *testing.T) {
 		suberr, _ := errors.Data(err)["badtx"]
 		if suberr != c.suberr {
 			t.Errorf("case %d: got error %s, want badtx with suberr %s", i, err, suberr)
+		}
+	}
+}
+
+// TestForgeValue ensures that if output X contains value V, then a tx
+// spending X can't get any value other than V out of it.
+func TestForgeValue(t *testing.T) {
+	now := time.Now()
+	nowMS := bc.Millis(now)
+	laterMS := bc.Millis(now.Add(time.Minute))
+
+	snapshot := state.Empty()
+
+	var initialBlockHash bc.Hash
+
+	trueProg := []byte{byte(vm.OP_TRUE)}
+	trueProg2 := []byte{byte(vm.OP_NOP), byte(vm.OP_TRUE)}
+	issuance := bc.NewIssuanceInput([]byte{1}, 100, nil, initialBlockHash, trueProg, nil, nil)
+	output := bc.NewTxOutput(issuance.AssetID(), 100, trueProg, nil)
+	tx1 := bc.NewTx(bc.TxData{
+		Version: 1,
+		MinTime: nowMS,
+		MaxTime: laterMS,
+		Inputs:  []*bc.TxInput{issuance},
+		Outputs: []*bc.TxOutput{output},
+	})
+
+	ApplyTx(snapshot, tx1)
+
+	outputID := tx1.OutputID(0)
+	for _, assetID := range []bc.AssetID{issuance.AssetID(), bc.AssetID{}} {
+		for _, amount := range []uint64{99, 100, 101} {
+			for _, prog := range [][]byte{trueProg, trueProg2} {
+				tx2 := bc.NewTx(bc.TxData{
+					Version: 1,
+					MinTime: nowMS,
+					MaxTime: laterMS,
+					Inputs: []*bc.TxInput{
+						bc.NewSpendInput(outputID, nil, assetID, amount, prog, nil),
+					},
+					Outputs: []*bc.TxOutput{
+						bc.NewTxOutput(assetID, amount, trueProg, nil),
+					},
+				})
+				err := CheckTxWellFormed(tx2)
+				if err != nil {
+					if assetID == issuance.AssetID() && amount == 100 && bytes.Equal(prog, trueProg) {
+						t.Errorf("CheckTxWellFormed failed with error %s, expected success", err)
+					}
+					continue
+				}
+				// no error from CheckTxWellFormed
+				if assetID != issuance.AssetID() {
+					t.Error("CheckTxWellFormed succeeded with wrong assetID")
+					continue
+				}
+				if amount != 100 {
+					t.Error("CheckTxWellFormed succeeded with wrong amount")
+					continue
+				}
+				if !bytes.Equal(prog, trueProg) {
+					t.Error("CheckTxWellFormed succeeded with wrong control program")
+					continue
+				}
+				err = ConfirmTx(snapshot, initialBlockHash, 1, nowMS, tx2)
+				if err != nil {
+					if assetID == issuance.AssetID() && amount == 100 && bytes.Equal(prog, trueProg) {
+						t.Errorf("ConfirmTx failed with error %s, expected success", err)
+					}
+					continue
+				}
+				// no error from ConfirmTx
+				if assetID != issuance.AssetID() {
+					t.Error("ConfirmTx succeeded with wrong assetID")
+					continue
+				}
+				if amount != 100 {
+					t.Error("ConfirmTx succeeded with wrong amount")
+					continue
+				}
+				if !bytes.Equal(prog, trueProg) {
+					t.Error("ConfirmTx succeeded with wrong control program")
+					continue
+				}
+			}
 		}
 	}
 }
