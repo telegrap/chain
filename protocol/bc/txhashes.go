@@ -17,6 +17,8 @@ type (
 	// ResultInfo contains information about each result in a transaction header.
 	ResultInfo struct {
 		ID          Hash   // outputID
+
+		// The following fields apply only to results that are outputs (not retirements).
 		SourceID    Hash   // the ID of this output's source entry
 		SourcePos   uint64 // the position within the source entry of this output's value
 		RefDataHash Hash   // contents of the result entry's data field (which is a hash of the source refdata, when converting from old-style transactions)
