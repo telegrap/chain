@@ -26,10 +26,16 @@ func TxHashes(oldTx *bc.TxData) (hashes *bc.TxHashes, err error) {
 	hashes = new(bc.TxHashes)
 	hashes.ID = bc.Hash(txid)
 
-	// ResultHashes
-	hashes.ResultHashes = make([]bc.Hash, len(header.body.Results))
+	// Results
+	hashes.Results = make([]bc.ResultInfo, len(header.body.Results))
 	for i, resultHash := range header.body.Results {
-		hashes.ResultHashes[i] = bc.Hash(resultHash)
+		hashes.Results[i].ID = resultHash
+		entry := entries[resultHash]
+		if out, ok := entry.(*output); ok {
+			hashes.Results[i].SourceID = out.body.Source.Ref
+			hashes.Results[i].SourcePos = out.body.Source.Position
+			hashes.Results[i].RefDataHash = out.body.Data
+		}
 	}
 
 	hashes.VMContexts = make([]*bc.VMContext, len(oldTx.Inputs))

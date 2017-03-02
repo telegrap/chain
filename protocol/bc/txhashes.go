@@ -4,14 +4,22 @@ type (
 	// TxHashes holds data needed for validation and state updates.
 	TxHashes struct {
 		ID Hash
+
 		// contains OutputIDs and retirement hashes.
-		// each OutputID is also the corresponding UnspentID
-		ResultHashes []Hash
-		Issuances    []struct {
+		Results   []ResultInfo
+		Issuances []struct {
 			ID           Hash
 			ExpirationMS uint64
 		}
 		VMContexts []*VMContext // one per old-style Input
+	}
+
+	// ResultInfo contains information about each result in a transaction header.
+	ResultInfo struct {
+		ID          Hash   // outputID
+		SourceID    Hash   // the ID of this output's source entry
+		SourcePos   uint64 // the position within the source entry of this output's value
+		RefDataHash Hash   // contents of the result entry's data field (which is a hash of the source refdata, when converting from old-style transactions)
 	}
 
 	VMContext struct {
